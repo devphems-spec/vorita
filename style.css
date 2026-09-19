@@ -2624,3 +2624,32 @@ body.dark .stock-bar {
     }
 
 }
+/* =====================================================
+   GRÁFICOS DE PIZZA - BALANÇO MENSAL
+===================================================== */
+
+.monthly-pie-container {
+
+    height: 300px;
+
+    position: relative;
+
+}
+
+
+.monthly-chart-container canvas {
+
+    max-height: 300px;
+
+}
+
+
+/* =====================================================
+   DARK MODE - GRÁFICOS
+===================================================== */
+
+body.dark .monthly-chart-container {
+
+    color: #eef3f6;
+
+}
