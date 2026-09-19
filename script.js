@@ -9,7 +9,7 @@
 ===================================================== */
 
 const GOOGLE_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbw6pibnMvmjK6VAVZASUFdIx1ChgH9Kx6riNO9XMaL-F7os7s-VAbJq9GUy1MMxc4df4g/exec";
+    "https://script.google.com/macros/s/AKfycbwVjr0jAdT2HH_LoFR-nE0P1bs_HzOfJkJ-zMoQz_opnUOnTO-WRvmVetBhNU7GKHAoMQ/exec";
 
 
 let sales = [];
