@@ -1,213 +1,386 @@
 /* =========================================================
    VÓ RITA — BALANÇO GERAL
-   SCRIPT.JS
-   ========================================================= */
+   Sistema financeiro + Google Sheets
+========================================================= */
 
-"use strict";
 
 /* =========================================================
-   CONFIGURAÇÃO
+   CONFIGURAÇÃO GOOGLE APPS SCRIPT
 ========================================================= */
 
 const GOOGLE_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbxvHq6N62Yj8s91vRSrByUnMLp1wJ0UjLcczN80fVDwH2HqGPPleP3MHypygLwoY8uvhQ/exec";
+    "https://script.google.com/macros/s/AKfycbw6pibnMvmjK6VAVZASUFdIx1ChgH9Kx6riNO9XMaL-F7os7s-VAbJq9GUy1MMxc4df4g/exec";
 
 
 /* =========================================================
-   DADOS LOCAIS
+   DADOS
 ========================================================= */
 
-let sales = JSON.parse(
-    localStorage.getItem("voRitaSales") || "[]"
-);
+let vendas = JSON.parse(
+    localStorage.getItem("voRitaVendas")
+) || [];
 
-let expenses = JSON.parse(
-    localStorage.getItem("voRitaExpenses") || "[]"
-);
+let despesas = JSON.parse(
+    localStorage.getItem("voRitaDespesas")
+) || [];
 
-let products = JSON.parse(
-    localStorage.getItem("voRitaProducts") || "[]"
-);
+let produtos = JSON.parse(
+    localStorage.getItem("voRitaProdutos")
+) || [];
 
-
-/* =========================================================
-   VARIÁVEIS
-========================================================= */
 
 let financeChart = null;
 let monthlyChart = null;
 let comparisonChart = null;
 
-let currentPage = "dashboard";
+let toastTimer = null;
 
 
 /* =========================================================
-   ELEMENTOS
+   ELEMENTOS PRINCIPAIS
 ========================================================= */
 
-const $ = (selector) =>
-    document.querySelector(selector);
+const pages = document.querySelectorAll(".page");
+const menuItems = document.querySelectorAll(".menu-item");
 
-const $$ = (selector) =>
-    document.querySelectorAll(selector);
+const pageTitle = document.getElementById("pageTitle");
+const pageKicker = document.getElementById("pageKicker");
+
+const sidebar = document.querySelector(".sidebar");
 
 
 /* =========================================================
-   FORMATAÇÃO
+   DATA
 ========================================================= */
 
-function formatMoney(value) {
+const hoje = new Date();
 
-    return Number(value || 0).toLocaleString(
+const hojeISO = formatarISO(hoje);
+
+
+const nomesMeses = [
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro"
+];
+
+
+const nomesMesesCurto = [
+    "Jan",
+    "Fev",
+    "Mar",
+    "Abr",
+    "Mai",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Set",
+    "Out",
+    "Nov",
+    "Dez"
+];
+
+
+/* =========================================================
+   UTILITÁRIOS
+========================================================= */
+
+function formatarISO(data) {
+
+    const d = new Date(data);
+
+    const ano = d.getFullYear();
+
+    const mes = String(
+        d.getMonth() + 1
+    ).padStart(2, "0");
+
+    const dia = String(
+        d.getDate()
+    ).padStart(2, "0");
+
+    return `${ano}-${mes}-${dia}`;
+}
+
+
+function moeda(valor) {
+
+    return Number(valor || 0).toLocaleString(
         "pt-BR",
         {
             style: "currency",
             currency: "BRL"
         }
     );
-
 }
 
 
-function formatDate(dateString) {
+function dataBR(data) {
 
-    if (!dateString) return "—";
+    if (!data) {
+        return "-";
+    }
 
-    const date = new Date(dateString + "T00:00:00");
+    const partes = String(data).split("-");
 
-    return date.toLocaleDateString(
-        "pt-BR"
-    );
+    if (partes.length !== 3) {
+        return data;
+    }
 
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
 
 
-function todayISO() {
+function escapar(texto) {
 
-    const date = new Date();
-
-    const year =
-        date.getFullYear();
-
-    const month =
-        String(date.getMonth() + 1)
-            .padStart(2, "0");
-
-    const day =
-        String(date.getDate())
-            .padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-
+    return String(texto ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
 
 
-/* =========================================================
-   TOAST
-========================================================= */
+function gerarId(prefixo = "vr") {
 
-function showToast(message) {
+    if (
+        window.crypto &&
+        typeof crypto.randomUUID === "function"
+    ) {
+        return `${prefixo}_${crypto.randomUUID()}`;
+    }
 
-    const toast =
-        $("#toast");
-
-    const toastMessage =
-        $("#toastMessage");
-
-    if (!toast) return;
-
-    toastMessage.textContent =
-        message;
-
-    toast.classList.add("show");
-
-    setTimeout(() => {
-
-        toast.classList.remove("show");
-
-    }, 3000);
-
+    return `${prefixo}_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2)}`;
 }
 
 
-/* =========================================================
-   LOCAL STORAGE
-========================================================= */
-
-function saveLocalData() {
+function salvarLocal() {
 
     localStorage.setItem(
-        "voRitaSales",
-        JSON.stringify(sales)
+        "voRitaVendas",
+        JSON.stringify(vendas)
     );
 
     localStorage.setItem(
-        "voRitaExpenses",
-        JSON.stringify(expenses)
+        "voRitaDespesas",
+        JSON.stringify(despesas)
     );
 
     localStorage.setItem(
-        "voRitaProducts",
-        JSON.stringify(products)
+        "voRitaProdutos",
+        JSON.stringify(produtos)
     );
+}
 
+
+function normalizarData(valor) {
+
+    if (!valor) {
+        return hojeISO;
+    }
+
+    if (
+        typeof valor === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(valor)
+    ) {
+        return valor;
+    }
+
+    const data = new Date(valor);
+
+    if (Number.isNaN(data.getTime())) {
+        return hojeISO;
+    }
+
+    return formatarISO(data);
 }
 
 
 /* =========================================================
    GOOGLE SHEETS
+   COMPATÍVEL EXATAMENTE COM O Código.gs
 ========================================================= */
 
-async function sendToGoogleSheets(data) {
 
-    if (
-        !GOOGLE_SCRIPT_URL ||
+/*
+    O Código.gs espera:
+
+    NOVA VENDA
+
+    acao
+    data
+    produto
+    cliente
+    quantidade
+    pagamento
+    valorUnitario
+    total
+
+
+    NOVA DESPESA
+
+    acao
+    data
+    descricao
+    categoria
+    pagamento
+    valor
+
+
+    NOVO PRODUTO
+
+    acao
+    nome
+    quantidade
+    minimo
+    preco
+    custo
+
+
+    EXCLUSÃO
+
+    acao
+    linha
+*/
+
+
+function urlConfigurada() {
+
+    return (
+        GOOGLE_SCRIPT_URL &&
         GOOGLE_SCRIPT_URL.includes(
-            "COLE_AQUI"
+            "script.google.com/macros/s/"
         )
-    ) {
+    );
+}
+
+
+/* =========================================================
+   POST PARA GOOGLE SHEETS
+========================================================= */
+
+async function enviarParaPlanilha(acao, dados = {}) {
+
+    if (!urlConfigurada()) {
 
         console.warn(
-            "Google Apps Script ainda não configurado."
+            "URL do Google Apps Script não configurada."
         );
 
-        return null;
-
+        return {
+            sucesso: false,
+            local: true
+        };
     }
+
+
+    const parametros = new URLSearchParams();
+
+
+    parametros.append(
+        "acao",
+        acao
+    );
+
+
+    Object.keys(dados).forEach(chave => {
+
+        let valor = dados[chave];
+
+        /*
+            O Apps Script usa e.parameter.
+            Portanto tudo é enviado como string.
+        */
+
+        if (
+            valor !== undefined &&
+            valor !== null
+        ) {
+
+            parametros.append(
+                chave,
+                String(valor)
+            );
+
+        }
+
+    });
 
 
     try {
 
-        const response =
-            await fetch(
-                GOOGLE_SCRIPT_URL,
-                {
-                    method: "POST",
+        const resposta = await fetch(
+            GOOGLE_SCRIPT_URL,
+            {
+                method: "POST",
+                body: parametros
+            }
+        );
 
-                    headers: {
-                        "Content-Type":
-                            "text/plain;charset=utf-8"
-                    },
 
-                    body:
-                        JSON.stringify(data)
-                }
+        const texto = await resposta.text();
+
+
+        let resultado;
+
+
+        try {
+
+            resultado = JSON.parse(texto);
+
+        } catch {
+
+            resultado = {
+                sucesso: resposta.ok,
+                mensagem: texto
+            };
+
+        }
+
+
+        if (
+            resultado &&
+            resultado.sucesso === false
+        ) {
+
+            throw new Error(
+                resultado.mensagem ||
+                "Erro ao salvar na planilha."
             );
 
+        }
 
-        const result =
-            await response.json();
 
-        return result;
+        return {
+            sucesso: true,
+            resposta: resultado
+        };
 
-    } catch (error) {
+
+    } catch (erro) {
 
         console.error(
             "Erro ao enviar para Google Sheets:",
-            error
+            erro
         );
 
-        return null;
+
+        return {
+            sucesso: false,
+            erro: erro.message
+        };
 
     }
 
@@ -218,79 +391,104 @@ async function sendToGoogleSheets(data) {
    CARREGAR DADOS DA PLANILHA
 ========================================================= */
 
-async function loadFromGoogleSheets() {
+async function carregarDaPlanilha() {
 
-    if (
-        !GOOGLE_SCRIPT_URL ||
-        GOOGLE_SCRIPT_URL.includes(
-            "COLE_AQUI"
-        )
-    ) {
+    if (!urlConfigurada()) {
 
-        return;
+        return false;
 
     }
 
 
     try {
 
-        const response =
-            await fetch(
-                GOOGLE_SCRIPT_URL
+        const url =
+            `${GOOGLE_SCRIPT_URL}?t=${Date.now()}`;
+
+
+        const resposta = await fetch(
+            url,
+            {
+                method: "GET",
+                cache: "no-store"
+            }
+        );
+
+
+        if (!resposta.ok) {
+
+            throw new Error(
+                "Erro HTTP " + resposta.status
             );
 
-        const data =
-            await response.json();
-
-
-        if (
-            data &&
-            Array.isArray(data.vendas)
-        ) {
-
-            sales =
-                data.vendas;
-
         }
 
 
-        if (
-            data &&
-            Array.isArray(data.despesas)
-        ) {
-
-            expenses =
-                data.despesas;
-
-        }
+        const resultado =
+            await resposta.json();
 
 
-        if (
-            data &&
-            Array.isArray(data.estoque)
-        ) {
+        /*
+            O Código.gs devolve:
 
-            products =
-                data.estoque;
+            {
+                vendas: [],
+                despesas: [],
+                produtos: []
+            }
+        */
 
-        }
+
+        vendas = Array.isArray(
+            resultado.vendas
+        )
+            ? resultado.vendas
+            : [];
 
 
-        saveLocalData();
+        despesas = Array.isArray(
+            resultado.despesas
+        )
+            ? resultado.despesas
+            : [];
 
-        refreshAll();
 
-        showToast(
-            "Dados sincronizados com a planilha."
+        produtos = Array.isArray(
+            resultado.produtos
+        )
+            ? resultado.produtos
+            : [];
+
+
+        normalizarDados();
+
+
+        salvarLocal();
+
+
+        prepararSeletoresMensais();
+
+
+        atualizarTudo();
+
+
+        return true;
+
+
+    } catch (erro) {
+
+        console.error(
+            "Erro ao carregar Google Sheets:",
+            erro
         );
 
 
-    } catch (error) {
-
-        console.warn(
-            "Não foi possível carregar os dados da planilha.",
-            error
+        mostrarToast(
+            "Não foi possível carregar a planilha."
         );
+
+
+        return false;
 
     }
 
@@ -298,157 +496,215 @@ async function loadFromGoogleSheets() {
 
 
 /* =========================================================
-   NAVEGAÇÃO
+   NORMALIZAÇÃO DOS DADOS DA PLANILHA
 ========================================================= */
 
-function navigateTo(page) {
-
-    currentPage =
-        page;
+function normalizarDados() {
 
 
-    $$(".page").forEach(
-        section => {
+    vendas = vendas.map(venda => {
 
-            section.classList.toggle(
-                "active",
-                section.id === page
-            );
+        return {
 
-        }
-    );
+            /*
+                A planilha possui:
+                objeto.linha
 
+                Essa linha é MUITO importante
+                para exclusão.
+            */
 
-    $$(".menu-item").forEach(
-        button => {
+            linha: Number(
+                venda.linha || 0
+            ),
 
-            button.classList.toggle(
-                "active",
-                button.dataset.page === page
-            );
+            produto: String(
+                venda.Produto ??
+                venda.produto ??
+                ""
+            ),
 
-        }
-    );
+            cliente: String(
+                venda.Cliente ??
+                venda.cliente ??
+                "Não informado"
+            ),
 
+            quantidade: Number(
+                venda.Quantidade ??
+                venda.quantidade ??
+                0
+            ),
 
-    updatePageHeader(
-        page
-    );
+            pagamento: String(
+                venda.Pagamento ??
+                venda.pagamento ??
+                "Outro"
+            ),
 
+            preco: Number(
+                venda.ValorUnitario ??
+                venda.valorUnitario ??
+                venda.preco ??
+                0
+            ),
 
-    if (
-        window.innerWidth <= 850
-    ) {
+            total: Number(
+                venda.Total ??
+                venda.total ??
+                0
+            ),
 
-        $(".sidebar")
-            ?.classList.remove("open");
+            data: normalizarData(
+                venda.Data ??
+                venda.data
+            )
 
-    }
+        };
 
-
-    if (page === "dashboard") {
-
-        updateDashboard();
-
-    }
-
-    if (page === "vendas") {
-
-        renderSales();
-
-    }
-
-    if (page === "despesas") {
-
-        renderExpenses();
-
-    }
-
-    if (page === "estoque") {
-
-        renderProducts();
-
-    }
-
-    if (page === "relatorios") {
-
-        updateReports();
-
-    }
-
-}
+    });
 
 
-function updatePageHeader(page) {
+    despesas = despesas.map(despesa => {
 
-    const titles = {
+        return {
 
-        dashboard: [
-            "VISÃO GERAL",
-            "Dashboard"
-        ],
+            linha: Number(
+                despesa.linha || 0
+            ),
 
-        vendas: [
-            "ENTRADAS",
-            "Vendas"
-        ],
+            descricao: String(
+                despesa.Descricao ??
+                despesa.descricao ??
+                ""
+            ),
 
-        despesas: [
-            "SAÍDAS",
-            "Despesas"
-        ],
+            categoria: String(
+                despesa.Categoria ??
+                despesa.categoria ??
+                "Outros"
+            ),
 
-        estoque: [
-            "PRODUTOS",
-            "Estoque"
-        ],
+            pagamento: String(
+                despesa.Pagamento ??
+                despesa.pagamento ??
+                "Outro"
+            ),
 
-        relatorios: [
-            "ANÁLISE FINANCEIRA",
-            "Relatórios"
-        ]
+            valor: Number(
+                despesa.Valor ??
+                despesa.valor ??
+                0
+            ),
 
-    };
+            data: normalizarData(
+                despesa.Data ??
+                despesa.data
+            )
 
+        };
 
-    const data =
-        titles[page] ||
-        titles.dashboard;
-
-
-    if ($("#pageKicker"))
-        $("#pageKicker").textContent =
-            data[0];
+    });
 
 
-    if ($("#pageTitle"))
-        $("#pageTitle").textContent =
-            data[1];
+    produtos = produtos.map(produto => {
+
+        return {
+
+            linha: Number(
+                produto.linha || 0
+            ),
+
+            nome: String(
+                produto.Nome ??
+                produto.nome ??
+                ""
+            ),
+
+            quantidade: Number(
+                produto.Quantidade ??
+                produto.quantidade ??
+                0
+            ),
+
+            minimo: Number(
+                produto.Minimo ??
+                produto.minimo ??
+                0
+            ),
+
+            preco: Number(
+                produto.Preco ??
+                produto.preco ??
+                0
+            ),
+
+            custo: Number(
+                produto.Custo ??
+                produto.custo ??
+                0
+            )
+
+        };
+
+    });
 
 }
 
 
 /* =========================================================
-   DATA ATUAL
+   TOAST
 ========================================================= */
 
-function updateToday() {
+function mostrarToast(mensagem) {
 
-    const element =
-        $("#today");
+    const toast =
+        document.getElementById("toast");
 
-    if (!element) return;
-
-    const date =
-        new Date();
+    const mensagemEl =
+        document.getElementById("toastMessage");
 
 
-    element.textContent =
-        date.toLocaleDateString(
+    if (!toast || !mensagemEl) {
+        return;
+    }
+
+
+    mensagemEl.textContent =
+        mensagem;
+
+
+    toast.classList.add("show");
+
+
+    clearTimeout(toastTimer);
+
+
+    toastTimer = setTimeout(() => {
+
+        toast.classList.remove("show");
+
+    }, 3000);
+
+}
+
+
+/* =========================================================
+   DATA NO CABEÇALHO
+========================================================= */
+
+const todayElement =
+    document.getElementById("today");
+
+
+if (todayElement) {
+
+    todayElement.textContent =
+        hoje.toLocaleDateString(
             "pt-BR",
             {
                 day: "2-digit",
-                month: "long",
+                month: "short",
                 year: "numeric"
             }
         );
@@ -457,66 +713,1340 @@ function updateToday() {
 
 
 /* =========================================================
-   PERÍODOS
+   DATAS INICIAIS DOS FORMULÁRIOS
 ========================================================= */
 
-function filterByPeriod(
-    data,
-    period
-) {
-
-    const now =
-        new Date();
-
-    const year =
-        now.getFullYear();
-
-    const month =
-        now.getMonth();
+const saleDateElement =
+    document.getElementById("saleDate");
 
 
-    return data.filter(
-        item => {
-
-            const date =
-                new Date(
-                    item.data + "T00:00:00"
-                );
+const expenseDateElement =
+    document.getElementById("expenseDate");
 
 
-            if (period === "today") {
+if (saleDateElement) {
 
-                return (
-                    date.getFullYear() === year &&
-                    date.getMonth() === month &&
-                    date.getDate() === now.getDate()
-                );
+    saleDateElement.value =
+        hojeISO;
 
-            }
+}
 
 
-            if (period === "month") {
+if (expenseDateElement) {
 
-                return (
-                    date.getFullYear() === year &&
-                    date.getMonth() === month
-                );
+    expenseDateElement.value =
+        hojeISO;
 
-            }
+}
 
 
-            if (period === "year") {
+/* =========================================================
+   NAVEGAÇÃO
+========================================================= */
 
-                return (
-                    date.getFullYear() === year
-                );
+const pageNames = {
 
-            }
+    dashboard: [
+        "VISÃO GERAL",
+        "Dashboard"
+    ],
+
+    vendas: [
+        "ENTRADAS",
+        "Vendas"
+    ],
+
+    despesas: [
+        "SAÍDAS",
+        "Despesas"
+    ],
+
+    estoque: [
+        "PRODUTOS",
+        "Estoque"
+    ],
+
+    relatorios: [
+        "ANÁLISE",
+        "Relatórios"
+    ]
+
+};
 
 
-            return true;
+function abrirPagina(id) {
+
+    pages.forEach(page => {
+
+        page.classList.toggle(
+            "active",
+            page.id === id
+        );
+
+    });
+
+
+    menuItems.forEach(item => {
+
+        item.classList.toggle(
+            "active",
+            item.dataset.page === id
+        );
+
+    });
+
+
+    if (
+        pageNames[id] &&
+        pageKicker &&
+        pageTitle
+    ) {
+
+        pageKicker.textContent =
+            pageNames[id][0];
+
+        pageTitle.textContent =
+            pageNames[id][1];
+
+    }
+
+
+    if (sidebar) {
+
+        sidebar.classList.remove(
+            "open"
+        );
+
+    }
+
+
+    atualizarTudo();
+
+}
+
+
+/* =========================================================
+   EVENTOS DE NAVEGAÇÃO
+========================================================= */
+
+menuItems.forEach(item => {
+
+    item.addEventListener(
+        "click",
+        () => {
+
+            abrirPagina(
+                item.dataset.page
+            );
 
         }
+    );
+
+});
+
+
+document
+    .querySelectorAll("[data-go]")
+    .forEach(button => {
+
+        button.addEventListener(
+            "click",
+            () => {
+
+                abrirPagina(
+                    button.dataset.go
+                );
+
+            }
+        );
+
+    });
+
+
+const mobileMenu =
+    document.getElementById("mobileMenu");
+
+
+if (mobileMenu) {
+
+    mobileMenu.addEventListener(
+        "click",
+        () => {
+
+            sidebar.classList.toggle(
+                "open"
+            );
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   MODAIS
+========================================================= */
+
+function abrirModal(id) {
+
+    const modal =
+        document.getElementById(id);
+
+    if (modal) {
+
+        modal.classList.add(
+            "active"
+        );
+
+    }
+
+}
+
+
+function fecharModal(id) {
+
+    const modal =
+        document.getElementById(id);
+
+    if (modal) {
+
+        modal.classList.remove(
+            "active"
+        );
+
+    }
+
+}
+
+
+document
+    .querySelectorAll("[data-close]")
+    .forEach(button => {
+
+        button.addEventListener(
+            "click",
+            () => {
+
+                fecharModal(
+                    button.dataset.close
+                );
+
+            }
+        );
+
+    });
+
+
+document
+    .querySelectorAll(".modal-overlay")
+    .forEach(overlay => {
+
+        overlay.addEventListener(
+            "click",
+            event => {
+
+                if (
+                    event.target === overlay
+                ) {
+
+                    overlay.classList.remove(
+                        "active"
+                    );
+
+                }
+
+            }
+        );
+
+    });
+
+
+/* =========================================================
+   VENDA — ABRIR MODAL
+========================================================= */
+
+const newSale =
+    document.getElementById("newSale");
+
+
+const quickSale =
+    document.getElementById("quickSale");
+
+
+if (newSale) {
+
+    newSale.addEventListener(
+        "click",
+        () => abrirModal("saleModal")
+    );
+
+}
+
+
+if (quickSale) {
+
+    quickSale.addEventListener(
+        "click",
+        () => abrirModal("saleModal")
+    );
+
+}
+
+
+/* =========================================================
+   VENDA — PREÇO / TOTAL
+========================================================= */
+
+const saleQuantity =
+    document.getElementById("saleQuantity");
+
+
+const saleUnitPrice =
+    document.getElementById("saleUnitPrice");
+
+
+const saleTotalPreview =
+    document.getElementById("saleTotalPreview");
+
+
+function atualizarTotalVenda() {
+
+    if (
+        !saleQuantity ||
+        !saleUnitPrice ||
+        !saleTotalPreview
+    ) {
+
+        return;
+
+    }
+
+
+    const quantidade =
+        Number(
+            saleQuantity.value
+        ) || 0;
+
+
+    const preco =
+        Number(
+            saleUnitPrice.value
+        ) || 0;
+
+
+    saleTotalPreview.textContent =
+        moeda(
+            quantidade * preco
+        );
+
+}
+
+
+if (saleQuantity) {
+
+    saleQuantity.addEventListener(
+        "input",
+        atualizarTotalVenda
+    );
+
+}
+
+
+if (saleUnitPrice) {
+
+    saleUnitPrice.addEventListener(
+        "input",
+        atualizarTotalVenda
+    );
+
+}
+
+
+/* =========================================================
+   VENDA — SALVAR
+========================================================= */
+
+const saleForm =
+    document.getElementById("saleForm");
+
+
+if (saleForm) {
+
+    saleForm.addEventListener(
+        "submit",
+        async event => {
+
+            event.preventDefault();
+
+
+            const produto =
+                document
+                    .getElementById("saleProduct")
+                    .value
+                    .trim();
+
+
+            const cliente =
+                document
+                    .getElementById("saleClient")
+                    .value
+                    .trim();
+
+
+            const quantidade =
+                Number(
+                    document
+                        .getElementById("saleQuantity")
+                        .value
+                );
+
+
+            const preco =
+                Number(
+                    document
+                        .getElementById("saleUnitPrice")
+                        .value
+                );
+
+
+            const data =
+                document
+                    .getElementById("saleDate")
+                    .value;
+
+
+            const pagamento =
+                document
+                    .getElementById("salePayment")
+                    .value;
+
+
+            if (
+                !produto ||
+                quantidade <= 0 ||
+                preco < 0 ||
+                !data
+            ) {
+
+                mostrarToast(
+                    "Confira os dados da venda."
+                );
+
+                return;
+
+            }
+
+
+            const total =
+                quantidade * preco;
+
+
+            /*
+                Registro LOCAL
+
+                A planilha NÃO recebe o id.
+                Ela recebe somente os campos
+                definidos no Código.gs.
+            */
+
+            const venda = {
+
+                id: gerarId("venda"),
+
+                linha: 0,
+
+                produto,
+
+                cliente:
+                    cliente ||
+                    "Não informado",
+
+                quantidade,
+
+                pagamento,
+
+                preco,
+
+                total,
+
+                data
+
+            };
+
+
+            /*
+                Primeiro salva localmente
+                para a interface responder
+                imediatamente.
+            */
+
+            vendas.push(venda);
+
+            salvarLocal();
+
+            atualizarTudo();
+
+
+            /*
+                AGORA envia exatamente
+                os parâmetros esperados
+                pelo Código.gs.
+            */
+
+            const resultado =
+                await enviarParaPlanilha(
+                    "novaVenda",
+                    {
+
+                        data,
+
+                        produto,
+
+                        cliente:
+                            cliente ||
+                            "Não informado",
+
+                        quantidade,
+
+                        pagamento,
+
+                        valorUnitario:
+                            preco,
+
+                        total
+
+                    }
+                );
+
+
+            if (
+                resultado.sucesso
+            ) {
+
+                mostrarToast(
+                    "Venda salva na planilha!"
+                );
+
+
+                /*
+                    Recarrega os dados para
+                    obter a linha real da planilha.
+                */
+
+                await carregarDaPlanilha();
+
+            } else {
+
+                mostrarToast(
+                    "Venda salva localmente. Não foi possível confirmar a planilha."
+                );
+
+            }
+
+
+            fecharModal(
+                "saleModal"
+            );
+
+
+            saleForm.reset();
+
+
+            if (saleQuantity) {
+
+                saleQuantity.value = 1;
+
+            }
+
+
+            if (saleDateElement) {
+
+                saleDateElement.value =
+                    hojeISO;
+
+            }
+
+
+            atualizarTotalVenda();
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   DESPESAS — ABRIR
+========================================================= */
+
+const newExpense =
+    document.getElementById("newExpense");
+
+
+if (newExpense) {
+
+    newExpense.addEventListener(
+        "click",
+        () => abrirModal("expenseModal")
+    );
+
+}
+
+
+/* =========================================================
+   DESPESAS — SALVAR
+========================================================= */
+
+const expenseForm =
+    document.getElementById("expenseForm");
+
+
+if (expenseForm) {
+
+    expenseForm.addEventListener(
+        "submit",
+        async event => {
+
+            event.preventDefault();
+
+
+            const descricao =
+                document
+                    .getElementById(
+                        "expenseDescription"
+                    )
+                    .value
+                    .trim();
+
+
+            const categoria =
+                document
+                    .getElementById(
+                        "expenseCategory"
+                    )
+                    .value;
+
+
+            const valor =
+                Number(
+                    document
+                        .getElementById(
+                            "expenseValue"
+                        )
+                        .value
+                );
+
+
+            const data =
+                document
+                    .getElementById(
+                        "expenseDate"
+                    )
+                    .value;
+
+
+            const pagamento =
+                document
+                    .getElementById(
+                        "expensePayment"
+                    )
+                    .value;
+
+
+            if (
+                !descricao ||
+                valor < 0 ||
+                !data
+            ) {
+
+                mostrarToast(
+                    "Confira os dados da despesa."
+                );
+
+                return;
+
+            }
+
+
+            const despesa = {
+
+                id:
+                    gerarId("despesa"),
+
+                linha: 0,
+
+                descricao,
+
+                categoria,
+
+                pagamento,
+
+                valor,
+
+                data
+
+            };
+
+
+            despesas.push(
+                despesa
+            );
+
+
+            salvarLocal();
+
+
+            atualizarTudo();
+
+
+            /*
+                EXATAMENTE como o Código.gs
+                espera.
+            */
+
+            const resultado =
+                await enviarParaPlanilha(
+                    "novaDespesa",
+                    {
+
+                        data,
+
+                        descricao,
+
+                        categoria,
+
+                        pagamento,
+
+                        valor
+
+                    }
+                );
+
+
+            if (
+                resultado.sucesso
+            ) {
+
+                mostrarToast(
+                    "Despesa salva na planilha!"
+                );
+
+                await carregarDaPlanilha();
+
+            } else {
+
+                mostrarToast(
+                    "Despesa salva localmente. Não foi possível confirmar a planilha."
+                );
+
+            }
+
+
+            fecharModal(
+                "expenseModal"
+            );
+
+
+            expenseForm.reset();
+
+
+            if (expenseDateElement) {
+
+                expenseDateElement.value =
+                    hojeISO;
+
+            }
+
+
+            atualizarTudo();
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   PRODUTOS — ABRIR
+========================================================= */
+
+const newProduct =
+    document.getElementById("newProduct");
+
+
+const emptyNewProduct =
+    document.getElementById(
+        "emptyNewProduct"
+    );
+
+
+if (newProduct) {
+
+    newProduct.addEventListener(
+        "click",
+        () => abrirModal("productModal")
+    );
+
+}
+
+
+if (emptyNewProduct) {
+
+    emptyNewProduct.addEventListener(
+        "click",
+        () => abrirModal("productModal")
+    );
+
+}
+
+
+/* =========================================================
+   PRODUTOS — SALVAR
+========================================================= */
+
+const productForm =
+    document.getElementById("productForm");
+
+
+if (productForm) {
+
+    productForm.addEventListener(
+        "submit",
+        async event => {
+
+            event.preventDefault();
+
+
+            const nome =
+                document
+                    .getElementById(
+                        "productName"
+                    )
+                    .value
+                    .trim();
+
+
+            const quantidade =
+                Number(
+                    document
+                        .getElementById(
+                            "productQuantity"
+                        )
+                        .value
+                );
+
+
+            const minimo =
+                Number(
+                    document
+                        .getElementById(
+                            "productMinimum"
+                        )
+                        .value
+                );
+
+
+            const preco =
+                Number(
+                    document
+                        .getElementById(
+                            "productPrice"
+                        )
+                        .value
+                );
+
+
+            const custo =
+                Number(
+                    document
+                        .getElementById(
+                            "productCost"
+                        )
+                        .value
+                );
+
+
+            if (
+                !nome ||
+                quantidade < 0 ||
+                minimo < 0 ||
+                preco < 0 ||
+                custo < 0
+            ) {
+
+                mostrarToast(
+                    "Confira os dados do produto."
+                );
+
+                return;
+
+            }
+
+
+            const produto = {
+
+                id:
+                    gerarId("produto"),
+
+                linha: 0,
+
+                nome,
+
+                quantidade,
+
+                minimo,
+
+                preco,
+
+                custo
+
+            };
+
+
+            produtos.push(
+                produto
+            );
+
+
+            salvarLocal();
+
+
+            atualizarTudo();
+
+
+            /*
+                EXATAMENTE como o Código.gs
+                espera.
+            */
+
+            const resultado =
+                await enviarParaPlanilha(
+                    "novoProduto",
+                    {
+
+                        nome,
+
+                        quantidade,
+
+                        minimo,
+
+                        preco,
+
+                        custo
+
+                    }
+                );
+
+
+            if (
+                resultado.sucesso
+            ) {
+
+                mostrarToast(
+                    "Produto salvo na planilha!"
+                );
+
+                await carregarDaPlanilha();
+
+            } else {
+
+                mostrarToast(
+                    "Produto salvo localmente. Não foi possível confirmar a planilha."
+                );
+
+            }
+
+
+            fecharModal(
+                "productModal"
+            );
+
+
+            productForm.reset();
+
+
+            const quantidadeInput =
+                document.getElementById(
+                    "productQuantity"
+                );
+
+
+            const minimoInput =
+                document.getElementById(
+                    "productMinimum"
+                );
+
+
+            if (quantidadeInput) {
+
+                quantidadeInput.value =
+                    0;
+
+            }
+
+
+            if (minimoInput) {
+
+                minimoInput.value =
+                    5;
+
+            }
+
+
+            atualizarTudo();
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   EXCLUSÃO — VENDA
+========================================================= */
+
+async function excluirVenda(linha) {
+
+    if (!linha || Number(linha) <= 1) {
+
+        mostrarToast(
+            "Linha da venda inválida."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !confirm(
+            "Deseja realmente excluir esta venda?"
+        )
+    ) {
+
+        return;
+
+    }
+
+
+    const numeroLinha =
+        Number(linha);
+
+
+    /*
+        Remove visualmente primeiro.
+    */
+
+    vendas =
+        vendas.filter(
+            venda =>
+                Number(venda.linha) !==
+                numeroLinha
+        );
+
+
+    salvarLocal();
+
+
+    atualizarTudo();
+
+
+    /*
+        O Código.gs espera:
+
+        acao = excluirVenda
+        linha = número da linha
+    */
+
+    const resultado =
+        await enviarParaPlanilha(
+            "excluirVenda",
+            {
+                linha:
+                    numeroLinha
+            }
+        );
+
+
+    if (
+        resultado.sucesso
+    ) {
+
+        mostrarToast(
+            "Venda excluída."
+        );
+
+        await carregarDaPlanilha();
+
+    } else {
+
+        mostrarToast(
+            "A venda foi removida da tela, mas não foi possível confirmar a exclusão na planilha."
+        );
+
+    }
+
+}
+
+
+/* =========================================================
+   EXCLUSÃO — DESPESA
+========================================================= */
+
+async function excluirDespesa(linha) {
+
+    if (!linha || Number(linha) <= 1) {
+
+        mostrarToast(
+            "Linha da despesa inválida."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !confirm(
+            "Deseja realmente excluir esta despesa?"
+        )
+    ) {
+
+        return;
+
+    }
+
+
+    const numeroLinha =
+        Number(linha);
+
+
+    despesas =
+        despesas.filter(
+            despesa =>
+                Number(despesa.linha) !==
+                numeroLinha
+        );
+
+
+    salvarLocal();
+
+
+    atualizarTudo();
+
+
+    const resultado =
+        await enviarParaPlanilha(
+            "excluirDespesa",
+            {
+                linha:
+                    numeroLinha
+            }
+        );
+
+
+    if (
+        resultado.sucesso
+    ) {
+
+        mostrarToast(
+            "Despesa excluída."
+        );
+
+        await carregarDaPlanilha();
+
+    } else {
+
+        mostrarToast(
+            "A despesa foi removida da tela, mas não foi possível confirmar a exclusão na planilha."
+        );
+
+    }
+
+}
+
+
+/* =========================================================
+   EXCLUSÃO — PRODUTO
+========================================================= */
+
+async function excluirProduto(linha) {
+
+    if (!linha || Number(linha) <= 1) {
+
+        mostrarToast(
+            "Linha do produto inválida."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !confirm(
+            "Deseja realmente excluir este produto?"
+        )
+    ) {
+
+        return;
+
+    }
+
+
+    const numeroLinha =
+        Number(linha);
+
+
+    produtos =
+        produtos.filter(
+            produto =>
+                Number(produto.linha) !==
+                numeroLinha
+        );
+
+
+    salvarLocal();
+
+
+    atualizarTudo();
+
+
+    const resultado =
+        await enviarParaPlanilha(
+            "excluirProduto",
+            {
+                linha:
+                    numeroLinha
+            }
+        );
+
+
+    if (
+        resultado.sucesso
+    ) {
+
+        mostrarToast(
+            "Produto excluído."
+        );
+
+        await carregarDaPlanilha();
+
+    } else {
+
+        mostrarToast(
+            "O produto foi removido da tela, mas não foi possível confirmar a exclusão na planilha."
+        );
+
+    }
+
+}
+
+
+/*
+    Os botões HTML usam onclick.
+*/
+
+window.excluirVenda =
+    excluirVenda;
+
+window.excluirDespesa =
+    excluirDespesa;
+
+window.excluirProduto =
+    excluirProduto;
+
+
+/* =========================================================
+   FILTROS DO DASHBOARD
+========================================================= */
+
+function pertenceAoPeriodo(
+    dataTexto,
+    periodo
+) {
+
+    if (
+        periodo === "all"
+    ) {
+
+        return true;
+
+    }
+
+
+    if (
+        periodo === "today"
+    ) {
+
+        return dataTexto === hojeISO;
+
+    }
+
+
+    const data =
+        new Date(
+            `${dataTexto}T12:00:00`
+        );
+
+
+    const agora =
+        new Date();
+
+
+    if (
+        periodo === "month"
+    ) {
+
+        return (
+            data.getMonth() ===
+                agora.getMonth() &&
+
+            data.getFullYear() ===
+                agora.getFullYear()
+        );
+
+    }
+
+
+    if (
+        periodo === "year"
+    ) {
+
+        return (
+            data.getFullYear() ===
+            agora.getFullYear()
+        );
+
+    }
+
+
+    return true;
+
+}
+
+
+function vendasPeriodo(periodo) {
+
+    return vendas.filter(
+        venda =>
+            pertenceAoPeriodo(
+                venda.data,
+                periodo
+            )
+    );
+
+}
+
+
+function despesasPeriodo(periodo) {
+
+    return despesas.filter(
+        despesa =>
+            pertenceAoPeriodo(
+                despesa.data,
+                periodo
+            )
     );
 
 }
@@ -526,383 +2056,363 @@ function filterByPeriod(
    DASHBOARD
 ========================================================= */
 
-function updateDashboard() {
+function atualizarDashboard() {
 
-    const period =
-        $("#dashboardPeriod")
-            ?.value || "month";
-
-
-    const filteredSales =
-        filterByPeriod(
-            sales,
-            period
+    const periodoElement =
+        document.getElementById(
+            "dashboardPeriod"
         );
 
 
-    const filteredExpenses =
-        filterByPeriod(
-            expenses,
-            period
-        );
+    const periodo =
+        periodoElement
+            ? periodoElement.value
+            : "month";
 
 
-    const revenue =
-        filteredSales.reduce(
-            (sum, item) =>
-                sum +
-                Number(item.total || 0),
+    const vendasFiltradas =
+        vendasPeriodo(periodo);
+
+
+    const despesasFiltradas =
+        despesasPeriodo(periodo);
+
+
+    const faturamento =
+        vendasFiltradas.reduce(
+            (soma, venda) =>
+                soma +
+                Number(venda.total),
             0
         );
 
 
-    const expenseTotal =
-        filteredExpenses.reduce(
-            (sum, item) =>
-                sum +
-                Number(item.valor || 0),
+    const totalDespesas =
+        despesasFiltradas.reduce(
+            (soma, despesa) =>
+                soma +
+                Number(despesa.valor),
             0
         );
 
 
-    const profit =
-        revenue -
-        expenseTotal;
+    const lucro =
+        faturamento -
+        totalDespesas;
 
 
-    const quantity =
-        filteredSales.length;
+    const dashRevenue =
+        document.getElementById(
+            "dashRevenue"
+        );
 
 
-    const ticket =
-        quantity > 0
-            ? revenue / quantity
-            : 0;
+    const dashExpenses =
+        document.getElementById(
+            "dashExpenses"
+        );
 
 
-    const margin =
-        revenue > 0
-            ? (profit / revenue) * 100
-            : 0;
+    const dashProfit =
+        document.getElementById(
+            "dashProfit"
+        );
 
 
-    setText(
-        "dashRevenue",
-        formatMoney(revenue)
-    );
+    const dashOrders =
+        document.getElementById(
+            "dashOrders"
+        );
 
 
-    setText(
-        "dashExpenses",
-        formatMoney(expenseTotal)
-    );
+    if (dashRevenue) {
+
+        dashRevenue.textContent =
+            moeda(faturamento);
+
+    }
 
 
-    setText(
-        "dashProfit",
-        formatMoney(profit)
-    );
+    if (dashExpenses) {
+
+        dashExpenses.textContent =
+            moeda(totalDespesas);
+
+    }
 
 
-    setText(
-        "dashOrders",
-        quantity
-    );
+    if (dashProfit) {
+
+        dashProfit.textContent =
+            moeda(lucro);
+
+    }
 
 
-    setText(
-        "averageTicket",
-        formatMoney(ticket)
-    );
+    if (dashOrders) {
+
+        dashOrders.textContent =
+            vendasFiltradas.length;
+
+    }
 
 
-    setText(
-        "productCount",
-        products.length
-    );
+    const averageTicket =
+        document.getElementById(
+            "averageTicket"
+        );
 
 
-    const lowStock =
-        products.filter(
-            product =>
-                Number(product.quantidade || 0) <=
-                Number(product.minimo || 0)
+    if (averageTicket) {
+
+        averageTicket.textContent =
+            moeda(
+                vendasFiltradas.length
+                    ? faturamento /
+                      vendasFiltradas.length
+                    : 0
+            );
+
+    }
+
+
+    const productCount =
+        document.getElementById(
+            "productCount"
+        );
+
+
+    if (productCount) {
+
+        productCount.textContent =
+            produtos.length;
+
+    }
+
+
+    const estoqueBaixo =
+        produtos.filter(
+            produto =>
+                Number(produto.quantidade) <=
+                Number(produto.minimo)
         ).length;
 
 
-    setText(
-        "lowStockCount",
-        lowStock
+    const lowStockCount =
+        document.getElementById(
+            "lowStockCount"
+        );
+
+
+    if (lowStockCount) {
+
+        lowStockCount.textContent =
+            estoqueBaixo;
+
+    }
+
+
+    const margem =
+        faturamento > 0
+            ? (
+                lucro /
+                faturamento
+            ) * 100
+            : 0;
+
+
+    const profitMargin =
+        document.getElementById(
+            "profitMargin"
+        );
+
+
+    if (profitMargin) {
+
+        profitMargin.textContent =
+            margem.toFixed(1) + "%";
+
+    }
+
+
+    atualizarGrafico(
+        vendasFiltradas,
+        despesasFiltradas
     );
 
 
-    setText(
-        "profitMargin",
-        `${margin.toFixed(1)}%`
-    );
-
-
-    renderRecentSales(
-        filteredSales
-    );
-
-
-    renderFinanceChart(
-        filteredSales,
-        filteredExpenses
-    );
+    atualizarUltimasVendas();
 
 }
 
 
 /* =========================================================
-   SET TEXT
+   GRÁFICO PRINCIPAL
 ========================================================= */
 
-function setText(
-    id,
-    value
+function atualizarGrafico(
+    vendasLista,
+    despesasLista
 ) {
 
-    const element =
-        document.getElementById(id);
-
-    if (element)
-        element.textContent =
-            value;
-
-}
+    const contexto =
+        document.getElementById(
+            "financeChart"
+        );
 
 
-/* =========================================================
-   ÚLTIMAS VENDAS
-========================================================= */
-
-function renderRecentSales(
-    data
-) {
-
-    const tbody =
-        $("#recentSales");
-
-    const empty =
-        $("#emptyRecentSales");
-
-
-    if (!tbody) return;
-
-
-    tbody.innerHTML = "";
-
-
-    const recent =
-        [...data]
-            .sort(
-                (a, b) =>
-                    new Date(b.data) -
-                    new Date(a.data)
-            )
-            .slice(0, 5);
-
-
-    if (recent.length === 0) {
-
-        if (empty)
-            empty.style.display =
-                "block";
+    if (
+        !contexto ||
+        typeof Chart === "undefined"
+    ) {
 
         return;
 
     }
 
 
-    if (empty)
-        empty.style.display =
-            "none";
+    const datas = {};
 
 
-    recent.forEach(
-        sale => {
+    vendasLista.forEach(
+        venda => {
 
-            const tr =
-                document.createElement(
-                    "tr"
-                );
+            if (
+                !datas[venda.data]
+            ) {
 
+                datas[venda.data] = {
+                    vendas: 0,
+                    despesas: 0
+                };
 
-            tr.innerHTML = `
-
-                <td>
-                    ${formatDate(sale.data)}
-                </td>
-
-                <td>
-                    ${escapeHTML(
-                        sale.produto
-                    )}
-                </td>
-
-                <td>
-                    ${sale.quantidade}
-                </td>
-
-                <td>
-                    ${escapeHTML(
-                        sale.pagamento
-                    )}
-                </td>
-
-                <td>
-                    <strong>
-                        ${formatMoney(
-                            sale.total
-                        )}
-                    </strong>
-                </td>
-
-            `;
+            }
 
 
-            tbody.appendChild(tr);
+            datas[venda.data].vendas +=
+                Number(venda.total);
 
         }
     );
 
-}
+
+    despesasLista.forEach(
+        despesa => {
+
+            if (
+                !datas[despesa.data]
+            ) {
+
+                datas[despesa.data] = {
+                    vendas: 0,
+                    despesas: 0
+                };
+
+            }
 
 
-/* =========================================================
-   GRÁFICO FINANCEIRO
-========================================================= */
+            datas[despesa.data].despesas +=
+                Number(despesa.valor);
 
-function renderFinanceChart(
-    saleData,
-    expenseData
-) {
-
-    const canvas =
-        $("#financeChart");
-
-    if (!canvas) return;
+        }
+    );
 
 
-    const context =
-        canvas.getContext("2d");
+    let labels =
+        Object.keys(datas)
+            .sort();
 
 
-    const labels = [];
-    const revenues = [];
-    const expensesValues = [];
+    if (!labels.length) {
+
+        labels = [
+            hojeISO
+        ];
 
 
-    const today =
-        new Date();
-
-
-    for (
-        let i = 6;
-        i >= 0;
-        i--
-    ) {
-
-        const date =
-            new Date(today);
-
-        date.setDate(
-            today.getDate() - i
-        );
-
-
-        const iso =
-            date.toISOString()
-                .split("T")[0];
-
-
-        labels.push(
-            date.toLocaleDateString(
-                "pt-BR",
-                {
-                    day: "2-digit",
-                    month: "2-digit"
-                }
-            )
-        );
-
-
-        revenues.push(
-            saleData
-                .filter(
-                    item =>
-                        item.data === iso
-                )
-                .reduce(
-                    (sum, item) =>
-                        sum +
-                        Number(item.total || 0),
-                    0
-                )
-        );
-
-
-        expensesValues.push(
-            expenseData
-                .filter(
-                    item =>
-                        item.data === iso
-                )
-                .reduce(
-                    (sum, item) =>
-                        sum +
-                        Number(item.valor || 0),
-                    0
-                )
-        );
+        datas[hojeISO] = {
+            vendas: 0,
+            despesas: 0
+        };
 
     }
 
 
-    if (financeChart)
+    labels =
+        labels.slice(-10);
+
+
+    const vendasData =
+        labels.map(
+            data =>
+                datas[data].vendas
+        );
+
+
+    const despesasData =
+        labels.map(
+            data =>
+                datas[data].despesas
+        );
+
+
+    if (financeChart) {
+
         financeChart.destroy();
+
+    }
 
 
     financeChart =
         new Chart(
-            context,
+            contexto,
             {
+
                 type: "line",
 
                 data: {
 
-                    labels,
+                    labels:
+                        labels.map(dataBR),
 
                     datasets: [
 
                         {
+
                             label:
                                 "Faturamento",
 
                             data:
-                                revenues,
+                                vendasData,
 
                             borderWidth:
-                                2,
+                                3,
 
                             tension:
-                                .35
+                                .35,
+
+                            pointRadius:
+                                3
+
                         },
 
                         {
+
                             label:
                                 "Despesas",
 
                             data:
-                                expensesValues,
+                                despesasData,
 
                             borderWidth:
-                                2,
+                                3,
 
                             tension:
-                                .35
+                                .35,
+
+                            pointRadius:
+                                3
+
                         }
 
                     ]
@@ -919,7 +2429,20 @@ function renderFinanceChart(
                     plugins: {
 
                         legend: {
-                            display: true
+
+                            position:
+                                "bottom",
+
+                            labels: {
+
+                                usePointStyle:
+                                    true,
+
+                                boxWidth:
+                                    8
+
+                            }
+
                         }
 
                     },
@@ -935,8 +2458,11 @@ function renderFinanceChart(
 
                                 callback:
                                     value =>
-                                        formatMoney(
+                                        "R$ " +
+                                        Number(
                                             value
+                                        ).toLocaleString(
+                                            "pt-BR"
                                         )
 
                             }
@@ -954,398 +2480,488 @@ function renderFinanceChart(
 
 
 /* =========================================================
-   VENDAS
+   ÚLTIMAS VENDAS
 ========================================================= */
 
-function renderSales(
-    search = ""
-) {
+function atualizarUltimasVendas() {
 
-    const tbody =
-        $("#salesTable");
+    const tabela =
+        document.getElementById(
+            "recentSales"
+        );
+
 
     const empty =
-        $("#emptySales");
-
-
-    if (!tbody) return;
-
-
-    tbody.innerHTML = "";
-
-
-    const term =
-        search
-            .trim()
-            .toLowerCase();
-
-
-    const filtered =
-        sales.filter(
-            sale => {
-
-                if (!term)
-                    return true;
-
-
-                return (
-
-                    String(
-                        sale.produto
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                    ||
-
-                    String(
-                        sale.cliente || ""
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                    ||
-
-                    String(
-                        sale.pagamento
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                );
-
-            }
+        document.getElementById(
+            "emptyRecentSales"
         );
 
 
-    const total =
-        sales.reduce(
-            (sum, sale) =>
-                sum +
-                Number(sale.total || 0),
-            0
-        );
-
-
-    const quantity =
-        sales.length;
-
-
-    const average =
-        quantity > 0
-            ? total / quantity
-            : 0;
-
-
-    setText(
-        "salesTotal",
-        formatMoney(total)
-    );
-
-
-    setText(
-        "salesQuantity",
-        quantity
-    );
-
-
-    setText(
-        "salesAverage",
-        formatMoney(average)
-    );
-
-
-    if (
-        filtered.length === 0
-    ) {
-
-        if (empty)
-            empty.style.display =
-                "block";
+    if (!tabela || !empty) {
 
         return;
 
     }
 
 
-    if (empty)
+    const lista =
+        [...vendas]
+            .sort(
+                (a, b) =>
+                    new Date(
+                        `${b.data}T12:00:00`
+                    ) -
+                    new Date(
+                        `${a.data}T12:00:00`
+                    )
+            )
+            .slice(0, 6);
+
+
+    tabela.innerHTML = "";
+
+
+    if (!lista.length) {
+
         empty.style.display =
-            "none";
+            "block";
+
+        return;
+
+    }
 
 
-    filtered
-        .sort(
-            (a, b) =>
-                new Date(b.data) -
-                new Date(a.data)
-        )
-        .forEach(
-            sale => {
-
-                const tr =
-                    document.createElement(
-                        "tr"
-                    );
+    empty.style.display =
+        "none";
 
 
-                tr.innerHTML = `
+    lista.forEach(venda => {
 
-                    <td>
-                        ${formatDate(
-                            sale.data
+        tabela.innerHTML += `
+
+            <tr>
+
+                <td>
+                    ${dataBR(venda.data)}
+                </td>
+
+                <td>
+                    <strong>
+                        ${escapar(
+                            venda.produto
                         )}
-                    </td>
+                    </strong>
+                </td>
 
-                    <td>
-                        ${escapeHTML(
-                            sale.produto
-                        )}
-                    </td>
+                <td>
+                    ${venda.quantidade}
+                </td>
 
-                    <td>
-                        ${escapeHTML(
-                            sale.cliente || "—"
-                        )}
-                    </td>
+                <td>
+                    ${escapar(
+                        venda.pagamento
+                    )}
+                </td>
 
-                    <td>
-                        ${sale.quantidade}
-                    </td>
+                <td>
+                    <strong>
+                        ${moeda(venda.total)}
+                    </strong>
+                </td>
 
-                    <td>
-                        ${escapeHTML(
-                            sale.pagamento
-                        )}
-                    </td>
+            </tr>
 
-                    <td>
-                        <strong>
-                            ${formatMoney(
-                                sale.total
-                            )}
-                        </strong>
-                    </td>
+        `;
 
-                    <td>
-
-                        <button
-                            class="delete-button"
-                            title="Excluir"
-                            data-delete-sale="${sale.id}">
-
-                            <i class="fa-solid fa-trash"></i>
-
-                        </button>
-
-                    </td>
-
-                `;
-
-
-                tbody.appendChild(tr);
-
-            }
-        );
+    });
 
 }
 
 
 /* =========================================================
-   DESPESAS
+   TABELA DE VENDAS
 ========================================================= */
 
-function renderExpenses(
-    search = ""
-) {
+function atualizarTabelaVendas() {
 
-    const tbody =
-        $("#expensesTable");
-
-    const empty =
-        $("#emptyExpenses");
-
-
-    if (!tbody) return;
-
-
-    tbody.innerHTML = "";
-
-
-    const term =
-        search
-            .trim()
-            .toLowerCase();
-
-
-    const filtered =
-        expenses.filter(
-            expense => {
-
-                if (!term)
-                    return true;
-
-
-                return (
-
-                    String(
-                        expense.descricao
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                    ||
-
-                    String(
-                        expense.categoria
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                    ||
-
-                    String(
-                        expense.pagamento
-                    )
-                    .toLowerCase()
-                    .includes(term)
-
-                );
-
-            }
+    const tabela =
+        document.getElementById(
+            "salesTable"
         );
 
 
+    const empty =
+        document.getElementById(
+            "emptySales"
+        );
+
+
+    const pesquisaElement =
+        document.getElementById(
+            "salesSearch"
+        );
+
+
+    if (!tabela || !empty) {
+
+        return;
+
+    }
+
+
+    const pesquisa =
+        pesquisaElement
+            ? pesquisaElement.value
+                .toLowerCase()
+            : "";
+
+
+    const lista =
+        vendas
+            .filter(venda => {
+
+                return `${venda.produto}
+                        ${venda.cliente}
+                        ${venda.pagamento}`
+                    .toLowerCase()
+                    .includes(pesquisa);
+
+            })
+            .sort(
+                (a, b) =>
+                    new Date(
+                        `${b.data}T12:00:00`
+                    ) -
+                    new Date(
+                        `${a.data}T12:00:00`
+                    )
+            );
+
+
+    tabela.innerHTML = "";
+
+
+    empty.style.display =
+        lista.length
+            ? "none"
+            : "block";
+
+
+    lista.forEach(venda => {
+
+        tabela.innerHTML += `
+
+            <tr>
+
+                <td>
+                    ${dataBR(venda.data)}
+                </td>
+
+                <td>
+                    <strong>
+                        ${escapar(
+                            venda.produto
+                        )}
+                    </strong>
+                </td>
+
+                <td>
+                    ${escapar(
+                        venda.cliente
+                    )}
+                </td>
+
+                <td>
+                    ${venda.quantidade}
+                </td>
+
+                <td>
+                    ${escapar(
+                        venda.pagamento
+                    )}
+                </td>
+
+                <td>
+                    <strong>
+                        ${moeda(
+                            venda.total
+                        )}
+                    </strong>
+                </td>
+
+                <td>
+
+                    <button
+                        class="delete-button"
+                        onclick="excluirVenda(${Number(venda.linha)})"
+                    >
+
+                        <i
+                            class="fa-solid fa-trash"
+                        ></i>
+
+                    </button>
+
+                </td>
+
+            </tr>
+
+        `;
+
+    });
+
+
     const total =
-        expenses.reduce(
-            (sum, expense) =>
-                sum +
-                Number(expense.valor || 0),
+        vendas.reduce(
+            (soma, venda) =>
+                soma +
+                Number(venda.total),
             0
         );
 
 
-    const quantity =
-        expenses.length;
+    const salesTotal =
+        document.getElementById(
+            "salesTotal"
+        );
 
 
-    const largest =
-        expenses.length
+    const salesQuantity =
+        document.getElementById(
+            "salesQuantity"
+        );
+
+
+    const salesAverage =
+        document.getElementById(
+            "salesAverage"
+        );
+
+
+    if (salesTotal) {
+
+        salesTotal.textContent =
+            moeda(total);
+
+    }
+
+
+    if (salesQuantity) {
+
+        salesQuantity.textContent =
+            vendas.length;
+
+    }
+
+
+    if (salesAverage) {
+
+        salesAverage.textContent =
+            moeda(
+                vendas.length
+                    ? total /
+                      vendas.length
+                    : 0
+            );
+
+    }
+
+}
+
+
+/* =========================================================
+   TABELA DE DESPESAS
+========================================================= */
+
+function atualizarTabelaDespesas() {
+
+    const tabela =
+        document.getElementById(
+            "expensesTable"
+        );
+
+
+    const empty =
+        document.getElementById(
+            "emptyExpenses"
+        );
+
+
+    const pesquisaElement =
+        document.getElementById(
+            "expenseSearch"
+        );
+
+
+    if (!tabela || !empty) {
+
+        return;
+
+    }
+
+
+    const pesquisa =
+        pesquisaElement
+            ? pesquisaElement.value
+                .toLowerCase()
+            : "";
+
+
+    const lista =
+        despesas
+            .filter(despesa => {
+
+                return `${despesa.descricao}
+                        ${despesa.categoria}
+                        ${despesa.pagamento}`
+                    .toLowerCase()
+                    .includes(pesquisa);
+
+            })
+            .sort(
+                (a, b) =>
+                    new Date(
+                        `${b.data}T12:00:00`
+                    ) -
+                    new Date(
+                        `${a.data}T12:00:00`
+                    )
+            );
+
+
+    tabela.innerHTML = "";
+
+
+    empty.style.display =
+        lista.length
+            ? "none"
+            : "block";
+
+
+    lista.forEach(despesa => {
+
+        tabela.innerHTML += `
+
+            <tr>
+
+                <td>
+                    ${dataBR(
+                        despesa.data
+                    )}
+                </td>
+
+                <td>
+                    <strong>
+                        ${escapar(
+                            despesa.descricao
+                        )}
+                    </strong>
+                </td>
+
+                <td>
+                    ${escapar(
+                        despesa.categoria
+                    )}
+                </td>
+
+                <td>
+                    ${escapar(
+                        despesa.pagamento
+                    )}
+                </td>
+
+                <td>
+                    <strong>
+                        ${moeda(
+                            despesa.valor
+                        )}
+                    </strong>
+                </td>
+
+                <td>
+
+                    <button
+                        class="delete-button"
+                        onclick="excluirDespesa(${Number(despesa.linha)})"
+                    >
+
+                        <i
+                            class="fa-solid fa-trash"
+                        ></i>
+
+                    </button>
+
+                </td>
+
+            </tr>
+
+        `;
+
+    });
+
+
+    const total =
+        despesas.reduce(
+            (soma, despesa) =>
+                soma +
+                Number(despesa.valor),
+            0
+        );
+
+
+    const maior =
+        despesas.length
             ? Math.max(
-                ...expenses.map(
-                    item =>
+                ...despesas.map(
+                    despesa =>
                         Number(
-                            item.valor || 0
+                            despesa.valor
                         )
                 )
             )
             : 0;
 
 
-    setText(
-        "expenseTotal",
-        formatMoney(total)
-    );
+    const expenseTotal =
+        document.getElementById(
+            "expenseTotal"
+        );
 
 
-    setText(
-        "expenseQuantity",
-        quantity
-    );
+    const expenseQuantity =
+        document.getElementById(
+            "expenseQuantity"
+        );
 
 
-    setText(
-        "largestExpense",
-        formatMoney(largest)
-    );
+    const largestExpense =
+        document.getElementById(
+            "largestExpense"
+        );
 
 
-    if (
-        filtered.length === 0
-    ) {
+    if (expenseTotal) {
 
-        if (empty)
-            empty.style.display =
-                "block";
-
-        return;
+        expenseTotal.textContent =
+            moeda(total);
 
     }
 
 
-    if (empty)
-        empty.style.display =
-            "none";
+    if (expenseQuantity) {
+
+        expenseQuantity.textContent =
+            despesas.length;
+
+    }
 
 
-    filtered
-        .sort(
-            (a, b) =>
-                new Date(b.data) -
-                new Date(a.data)
-        )
-        .forEach(
-            expense => {
+    if (largestExpense) {
 
-                const tr =
-                    document.createElement(
-                        "tr"
-                    );
+        largestExpense.textContent =
+            moeda(maior);
 
-
-                tr.innerHTML = `
-
-                    <td>
-                        ${formatDate(
-                            expense.data
-                        )}
-                    </td>
-
-                    <td>
-                        ${escapeHTML(
-                            expense.descricao
-                        )}
-                    </td>
-
-                    <td>
-                        ${escapeHTML(
-                            expense.categoria
-                        )}
-                    </td>
-
-                    <td>
-                        ${escapeHTML(
-                            expense.pagamento
-                        )}
-                    </td>
-
-                    <td>
-                        <strong>
-                            ${formatMoney(
-                                expense.valor
-                            )}
-                        </strong>
-                    </td>
-
-                    <td>
-
-                        <button
-                            class="delete-button"
-                            title="Excluir"
-                            data-delete-expense="${expense.id}">
-
-                            <i class="fa-solid fa-trash"></i>
-
-                        </button>
-
-                    </td>
-
-                `;
-
-
-                tbody.appendChild(tr);
-
-            }
-        );
+    }
 
 }
 
@@ -1354,141 +2970,126 @@ function renderExpenses(
    ESTOQUE
 ========================================================= */
 
-function renderProducts() {
+function atualizarEstoque() {
 
     const grid =
-        $("#productGrid");
-
-    const empty =
-        $("#emptyProducts");
-
-
-    if (!grid) return;
-
-
-    grid.innerHTML = "";
-
-
-    const totalUnits =
-        products.reduce(
-            (sum, product) =>
-                sum +
-                Number(
-                    product.quantidade || 0
-                ),
-            0
+        document.getElementById(
+            "productGrid"
         );
 
 
-    const low =
-        products.filter(
-            product =>
-                Number(
-                    product.quantidade || 0
-                ) <=
-                Number(
-                    product.minimo || 0
-                )
-        ).length;
+    const empty =
+        document.getElementById(
+            "emptyProducts"
+        );
 
 
-    setText(
-        "stockProducts",
-        products.length
-    );
-
-
-    setText(
-        "stockUnits",
-        totalUnits
-    );
-
-
-    setText(
-        "stockLow",
-        low
-    );
-
-
-    if (
-        products.length === 0
-    ) {
-
-        if (empty)
-            empty.style.display =
-                "block";
+    if (!grid || !empty) {
 
         return;
 
     }
 
 
-    if (empty)
+    grid.innerHTML = "";
+
+
+    if (!produtos.length) {
+
+        grid.style.display =
+            "none";
+
+        empty.style.display =
+            "block";
+
+    } else {
+
+        grid.style.display =
+            "grid";
+
         empty.style.display =
             "none";
 
-
-    products.forEach(
-        product => {
-
-            const quantity =
-                Number(
-                    product.quantidade || 0
-                );
-
-            const minimum =
-                Number(
-                    product.minimo || 0
-                );
+    }
 
 
-            const percent =
-                minimum > 0
-                    ? Math.min(
-                        100,
-                        (quantity / minimum) * 100
-                    )
-                    : 100;
+    produtos.forEach(produto => {
+
+        const percentual =
+            produto.minimo > 0
+
+                ? Math.min(
+                    100,
+                    (
+                        produto.quantidade /
+                        (
+                            produto.minimo *
+                            4
+                        )
+                    ) * 100
+                )
+
+                : 100;
 
 
-            const lowStock =
-                quantity <= minimum;
+        const baixo =
+            Number(
+                produto.quantidade
+            ) <=
+            Number(
+                produto.minimo
+            );
 
 
-            const card =
-                document.createElement(
-                    "div"
-                );
+        const lucro =
+            Number(
+                produto.preco
+            ) -
+            Number(
+                produto.custo
+            );
 
 
-            card.className =
-                "product-card";
+        grid.innerHTML += `
 
-
-            card.innerHTML = `
+            <div class="product-card">
 
                 <div class="product-top">
 
                     <div class="product-image">
 
-                        <i class="fa-solid fa-cookie-bite"></i>
+                        <i
+                            class="fa-solid fa-cookie-bite"
+                        ></i>
 
                     </div>
+
+
+                    <button
+                        class="delete-button"
+                        onclick="excluirProduto(${Number(produto.linha)})"
+                    >
+
+                        <i
+                            class="fa-solid fa-trash"
+                        ></i>
+
+                    </button>
 
                 </div>
 
 
                 <h4>
-                    ${escapeHTML(
-                        product.nome
+                    ${escapar(
+                        produto.nome
                     )}
                 </h4>
 
 
                 <div class="product-price">
 
-                    ${formatMoney(
-                        product.preco
+                    ${moeda(
+                        produto.preco
                     )}
 
                 </div>
@@ -1497,13 +3098,9 @@ function renderProducts() {
                 <div class="stock-bar">
 
                     <div
-                        class="stock-progress ${
-                            lowStock
-                                ? "low"
-                                : ""
-                        }"
-                        style="width:${percent}%">
-                    </div>
+                        class="stock-progress ${baixo ? "low" : ""}"
+                        style="width:${percentual}%"
+                    ></div>
 
                 </div>
 
@@ -1511,13 +3108,13 @@ function renderProducts() {
                 <div class="stock-info">
 
                     <span>
-                        Estoque:
-                        ${quantity}
+                        ${produto.quantidade}
+                        unidades
                     </span>
 
                     <span>
-                        Mínimo:
-                        ${minimum}
+                        mínimo:
+                        ${produto.minimo}
                     </span>
 
                 </div>
@@ -1525,743 +3122,602 @@ function renderProducts() {
 
                 <div class="product-actions">
 
-                    <small>
+                    <span
+                        style="
+                            font-size:11px;
+                            color:var(--muted)
+                        "
+                    >
+
                         Custo:
-                        ${formatMoney(
-                            product.custo
+                        ${moeda(
+                            produto.custo
                         )}
-                    </small>
+
+                    </span>
 
 
-                    <button
-                        class="delete-button"
-                        title="Excluir"
-                        data-delete-product="${product.id}">
+                    <strong
+                        style="
+                            font-size:12px;
+                            color:${
+                                lucro >= 0
+                                    ? "var(--green)"
+                                    : "var(--red)"
+                            }
+                        "
+                    >
 
-                        <i class="fa-solid fa-trash"></i>
+                        Lucro:
+                        ${moeda(lucro)}
 
-                    </button>
+                    </strong>
 
                 </div>
 
-            `;
+            </div>
+
+        `;
+
+    });
 
 
-            grid.appendChild(
-                card
+    const unidades =
+        produtos.reduce(
+            (soma, produto) =>
+                soma +
+                Number(
+                    produto.quantidade
+                ),
+            0
+        );
+
+
+    const baixo =
+        produtos.filter(
+            produto =>
+                Number(
+                    produto.quantidade
+                ) <=
+                Number(
+                    produto.minimo
+                )
+        ).length;
+
+
+    const stockProducts =
+        document.getElementById(
+            "stockProducts"
+        );
+
+
+    const stockUnits =
+        document.getElementById(
+            "stockUnits"
+        );
+
+
+    const stockLow =
+        document.getElementById(
+            "stockLow"
+        );
+
+
+    if (stockProducts) {
+
+        stockProducts.textContent =
+            produtos.length;
+
+    }
+
+
+    if (stockUnits) {
+
+        stockUnits.textContent =
+            unidades;
+
+    }
+
+
+    if (stockLow) {
+
+        stockLow.textContent =
+            baixo;
+
+    }
+
+}
+
+
+/* =========================================================
+   RELATÓRIOS GERAIS
+========================================================= */
+
+function atualizarRelatoriosGerais() {
+
+    const faturamento =
+        vendas.reduce(
+            (soma, venda) =>
+                soma +
+                Number(venda.total),
+            0
+        );
+
+
+    const totalDespesas =
+        despesas.reduce(
+            (soma, despesa) =>
+                soma +
+                Number(despesa.valor),
+            0
+        );
+
+
+    const lucro =
+        faturamento -
+        totalDespesas;
+
+
+    const margem =
+        faturamento > 0
+            ? (
+                lucro /
+                faturamento
+            ) * 100
+            : 0;
+
+
+    const reportRevenue =
+        document.getElementById(
+            "reportRevenue"
+        );
+
+
+    const reportExpenses =
+        document.getElementById(
+            "reportExpenses"
+        );
+
+
+    const reportProfit =
+        document.getElementById(
+            "reportProfit"
+        );
+
+
+    const reportMargin =
+        document.getElementById(
+            "reportMargin"
+        );
+
+
+    const summaryRevenue =
+        document.getElementById(
+            "summaryRevenue"
+        );
+
+
+    const summaryExpenses =
+        document.getElementById(
+            "summaryExpenses"
+        );
+
+
+    const summaryProfit =
+        document.getElementById(
+            "summaryProfit"
+        );
+
+
+    if (reportRevenue) {
+
+        reportRevenue.textContent =
+            moeda(faturamento);
+
+    }
+
+
+    if (reportExpenses) {
+
+        reportExpenses.textContent =
+            moeda(totalDespesas);
+
+    }
+
+
+    if (reportProfit) {
+
+        reportProfit.textContent =
+            moeda(lucro);
+
+    }
+
+
+    if (reportMargin) {
+
+        reportMargin.textContent =
+            margem.toFixed(1) + "%";
+
+    }
+
+
+    if (summaryRevenue) {
+
+        summaryRevenue.textContent =
+            moeda(faturamento);
+
+    }
+
+
+    if (summaryExpenses) {
+
+        summaryExpenses.textContent =
+            moeda(totalDespesas);
+
+    }
+
+
+    if (summaryProfit) {
+
+        summaryProfit.textContent =
+            moeda(lucro);
+
+    }
+
+
+    /*
+        PRODUTOS MAIS VENDIDOS
+    */
+
+    const ranking = {};
+
+
+    vendas.forEach(venda => {
+
+        if (
+            !ranking[venda.produto]
+        ) {
+
+            ranking[venda.produto] =
+                0;
+
+        }
+
+
+        ranking[venda.produto] +=
+            Number(
+                venda.quantidade
+            );
+
+    });
+
+
+    const melhores =
+        Object.entries(ranking)
+            .sort(
+                (a, b) =>
+                    b[1] - a[1]
+            )
+            .slice(0, 5);
+
+
+    const bestContainer =
+        document.getElementById(
+            "bestProducts"
+        );
+
+
+    if (bestContainer) {
+
+        bestContainer.innerHTML =
+            "";
+
+
+        if (!melhores.length) {
+
+            bestContainer.innerHTML =
+                `
+                <div class="empty-state">
+                    Nenhuma venda registrada.
+                </div>
+                `;
+
+        } else {
+
+            melhores.forEach(
+                (item, index) => {
+
+                    bestContainer.innerHTML += `
+
+                        <div class="rank-item">
+
+                            <div class="rank-left">
+
+                                <div
+                                    class="rank-number"
+                                >
+                                    ${index + 1}
+                                </div>
+
+                                <span
+                                    class="rank-name"
+                                >
+                                    ${escapar(
+                                        item[0]
+                                    )}
+                                </span>
+
+                            </div>
+
+
+                            <span
+                                class="rank-value"
+                            >
+                                ${item[1]}
+                                unidades
+                            </span>
+
+                        </div>
+
+                    `;
+
+                }
+            );
+
+        }
+
+    }
+
+
+    /*
+        CATEGORIAS DE DESPESAS
+    */
+
+    const categorias = {};
+
+
+    despesas.forEach(
+        despesa => {
+
+            if (
+                !categorias[
+                    despesa.categoria
+                ]
+            ) {
+
+                categorias[
+                    despesa.categoria
+                ] = 0;
+
+            }
+
+
+            categorias[
+                despesa.categoria
+            ] += Number(
+                despesa.valor
             );
 
         }
     );
 
-}
+
+    const categoriasOrdenadas =
+        Object.entries(
+            categorias
+        )
+        .sort(
+            (a, b) =>
+                b[1] - a[1]
+        )
+        .slice(0, 5);
 
 
-/* =========================================================
-   MODAIS
-========================================================= */
-
-function openModal(id) {
-
-    const modal =
-        document.getElementById(id);
-
-    if (modal)
-        modal.classList.add(
-            "active"
-        );
-
-}
-
-
-function closeModal(id) {
-
-    const modal =
-        document.getElementById(id);
-
-    if (modal)
-        modal.classList.remove(
-            "active"
-        );
-
-}
-
-
-/* =========================================================
-   PREVIEW DA VENDA
-========================================================= */
-
-function updateSalePreview() {
-
-    const quantity =
-        Number(
-            $("#saleQuantity")?.value || 0
+    const expenseContainer =
+        document.getElementById(
+            "expenseCategories"
         );
 
 
-    const unitPrice =
-        Number(
-            $("#saleUnitPrice")?.value || 0
-        );
+    if (expenseContainer) {
 
+        expenseContainer.innerHTML =
+            "";
 
-    const total =
-        quantity *
-        unitPrice;
 
+        if (
+            !categoriasOrdenadas.length
+        ) {
 
-    setText(
-        "saleTotalPreview",
-        formatMoney(total)
-    );
+            expenseContainer.innerHTML =
+                `
+                <div class="empty-state">
+                    Nenhuma despesa registrada.
+                </div>
+                `;
 
-}
+        } else {
 
+            categoriasOrdenadas.forEach(
+                (item, index) => {
 
-/* =========================================================
-   REGISTRAR VENDA
-========================================================= */
+                    expenseContainer.innerHTML += `
 
-async function registerSale(
-    event
-) {
+                        <div class="rank-item">
 
-    event.preventDefault();
+                            <div class="rank-left">
 
+                                <div
+                                    class="rank-number"
+                                >
+                                    ${index + 1}
+                                </div>
 
-    const produto =
-        $("#saleProduct").value.trim();
+                                <span
+                                    class="rank-name"
+                                >
+                                    ${escapar(
+                                        item[0]
+                                    )}
+                                </span>
 
+                            </div>
 
-    const cliente =
-        $("#saleClient").value.trim();
 
+                            <span
+                                class="rank-value"
+                            >
+                                ${moeda(
+                                    item[1]
+                                )}
+                            </span>
 
-    const quantidade =
-        Number(
-            $("#saleQuantity").value
-        );
+                        </div>
 
+                    `;
 
-    const unitPrice =
-        Number(
-            $("#saleUnitPrice").value
-        );
+                }
+            );
 
-
-    const data =
-        $("#saleDate").value;
-
-
-    const pagamento =
-        $("#salePayment").value;
-
-
-    if (!produto) {
-
-        showToast(
-            "Informe o produto."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        quantidade <= 0 ||
-        unitPrice < 0
-    ) {
-
-        showToast(
-            "Informe quantidade e valor válidos."
-        );
-
-        return;
-
-    }
-
-
-    const total =
-        quantidade *
-        unitPrice;
-
-
-    const sale = {
-
-        id:
-            createId(),
-
-        data,
-
-        produto,
-
-        cliente,
-
-        quantidade,
-
-        valorUnitario:
-            unitPrice,
-
-        total,
-
-        pagamento
-
-    };
-
-
-    sales.push(
-        sale
-    );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    closeModal(
-        "saleModal"
-    );
-
-
-    $("#saleForm")
-        .reset();
-
-
-    setDefaultDates();
-
-
-    showToast(
-        "Venda salva. Sincronizando com a planilha..."
-    );
-
-
-    const result =
-        await sendToGoogleSheets(
-            {
-                action:
-                    "addSale",
-
-                sale
-            }
-        );
-
-
-    if (
-        result &&
-        result.success
-    ) {
-
-        showToast(
-            "Venda salva na planilha!"
-        );
-
-    } else {
-
-        showToast(
-            "Venda salva localmente. Verifique a conexão com a planilha."
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   REGISTRAR DESPESA
-========================================================= */
-
-async function registerExpense(
-    event
-) {
-
-    event.preventDefault();
-
-
-    const descricao =
-        $("#expenseDescription")
-            .value
-            .trim();
-
-
-    const categoria =
-        $("#expenseCategory")
-            .value;
-
-
-    const valor =
-        Number(
-            $("#expenseValue").value
-        );
-
-
-    const data =
-        $("#expenseDate").value;
-
-
-    const pagamento =
-        $("#expensePayment").value;
-
-
-    if (!descricao) {
-
-        showToast(
-            "Informe a descrição."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        valor <= 0
-    ) {
-
-        showToast(
-            "Informe um valor válido."
-        );
-
-        return;
-
-    }
-
-
-    const expense = {
-
-        id:
-            createId(),
-
-        data,
-
-        descricao,
-
-        categoria,
-
-        valor,
-
-        pagamento
-
-    };
-
-
-    expenses.push(
-        expense
-    );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    closeModal(
-        "expenseModal"
-    );
-
-
-    $("#expenseForm")
-        .reset();
-
-
-    setDefaultDates();
-
-
-    showToast(
-        "Despesa salva. Sincronizando..."
-    );
-
-
-    const result =
-        await sendToGoogleSheets(
-            {
-                action:
-                    "addExpense",
-
-                expense
-            }
-        );
-
-
-    if (
-        result &&
-        result.success
-    ) {
-
-        showToast(
-            "Despesa salva na planilha!"
-        );
-
-    } else {
-
-        showToast(
-            "Despesa salva localmente."
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   REGISTRAR PRODUTO
-========================================================= */
-
-async function registerProduct(
-    event
-) {
-
-    event.preventDefault();
-
-
-    const nome =
-        $("#productName")
-            .value
-            .trim();
-
-
-    const quantidade =
-        Number(
-            $("#productQuantity").value
-        );
-
-
-    const minimo =
-        Number(
-            $("#productMinimum").value
-        );
-
-
-    const preco =
-        Number(
-            $("#productPrice").value
-        );
-
-
-    const custo =
-        Number(
-            $("#productCost").value
-        );
-
-
-    if (!nome) {
-
-        showToast(
-            "Informe o nome do produto."
-        );
-
-        return;
-
-    }
-
-
-    const product = {
-
-        id:
-            createId(),
-
-        nome,
-
-        quantidade,
-
-        minimo,
-
-        preco,
-
-        custo
-
-    };
-
-
-    products.push(
-        product
-    );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    closeModal(
-        "productModal"
-    );
-
-
-    $("#productForm")
-        .reset();
-
-
-    showToast(
-        "Produto salvo. Sincronizando..."
-    );
-
-
-    const result =
-        await sendToGoogleSheets(
-            {
-                action:
-                    "addProduct",
-
-                product
-            }
-        );
-
-
-    if (
-        result &&
-        result.success
-    ) {
-
-        showToast(
-            "Produto salvo na planilha!"
-        );
-
-    } else {
-
-        showToast(
-            "Produto salvo localmente."
-        );
-
-    }
-
-}
-
-
-/* =========================================================
-   EXCLUSÃO
-========================================================= */
-
-async function deleteSale(
-    id
-) {
-
-    const confirmed =
-        confirm(
-            "Deseja realmente excluir esta venda?"
-        );
-
-
-    if (!confirmed)
-        return;
-
-
-    sales =
-        sales.filter(
-            sale =>
-                String(sale.id) !==
-                String(id)
-        );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    showToast(
-        "Venda excluída."
-    );
-
-
-    await sendToGoogleSheets(
-        {
-            action:
-                "deleteSale",
-
-            id
         }
-    );
 
-}
-
-
-async function deleteExpense(
-    id
-) {
-
-    const confirmed =
-        confirm(
-            "Deseja realmente excluir esta despesa?"
-        );
-
-
-    if (!confirmed)
-        return;
-
-
-    expenses =
-        expenses.filter(
-            expense =>
-                String(expense.id) !==
-                String(id)
-        );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    showToast(
-        "Despesa excluída."
-    );
-
-
-    await sendToGoogleSheets(
-        {
-            action:
-                "deleteExpense",
-
-            id
-        }
-    );
-
-}
-
-
-async function deleteProduct(
-    id
-) {
-
-    const confirmed =
-        confirm(
-            "Deseja realmente excluir este produto?"
-        );
-
-
-    if (!confirmed)
-        return;
-
-
-    products =
-        products.filter(
-            product =>
-                String(product.id) !==
-                String(id)
-        );
-
-
-    saveLocalData();
-
-    refreshAll();
-
-
-    showToast(
-        "Produto excluído."
-    );
-
-
-    await sendToGoogleSheets(
-        {
-            action:
-                "deleteProduct",
-
-            id
-        }
-    );
+    }
 
 }
 
 
 /* =========================================================
-   RELATÓRIOS
+   SELETORES DO BALANÇO MENSAL
 ========================================================= */
 
-function populateReportSelectors() {
+function prepararSeletoresMensais() {
 
     const monthSelect =
-        $("#reportMonth");
+        document.getElementById(
+            "reportMonth"
+        );
+
 
     const yearSelect =
-        $("#reportYear");
+        document.getElementById(
+            "reportYear"
+        );
 
 
-    if (!monthSelect || !yearSelect)
+    if (
+        !monthSelect ||
+        !yearSelect
+    ) {
+
         return;
 
-
-    const months = [
-
-        "Janeiro",
-        "Fevereiro",
-        "Março",
-        "Abril",
-        "Maio",
-        "Junho",
-        "Julho",
-        "Agosto",
-        "Setembro",
-        "Outubro",
-        "Novembro",
-        "Dezembro"
-
-    ];
+    }
 
 
-    monthSelect.innerHTML = "";
+    monthSelect.innerHTML =
+        "";
 
 
-    months.forEach(
-        (month, index) => {
+    nomesMeses.forEach(
+        (mes, index) => {
 
-            const option =
-                document.createElement(
-                    "option"
-                );
-
-            option.value =
-                index;
-
-            option.textContent =
-                month;
-
-            monthSelect.appendChild(
-                option
-            );
+            monthSelect.innerHTML +=
+                `
+                <option value="${index}">
+                    ${mes}
+                </option>
+                `;
 
         }
     );
 
 
-    const currentYear =
-        new Date().getFullYear();
+    const anoAtual =
+        hoje.getFullYear();
 
 
-    yearSelect.innerHTML = "";
+    const anosExistentes = [
+
+        ...vendas.map(
+            venda =>
+                Number(
+                    String(
+                        venda.data
+                    ).slice(0, 4)
+                )
+        ),
+
+        ...despesas.map(
+            despesa =>
+                Number(
+                    String(
+                        despesa.data
+                    ).slice(0, 4)
+                )
+        ),
+
+        anoAtual
+
+    ].filter(
+        ano =>
+            Number.isFinite(ano) &&
+            ano > 1900
+    );
+
+
+    const menorAno =
+        Math.min(
+            anoAtual - 5,
+            ...anosExistentes
+        );
+
+
+    const maiorAno =
+        Math.max(
+            anoAtual + 2,
+            ...anosExistentes
+        );
+
+
+    yearSelect.innerHTML =
+        "";
 
 
     for (
-        let year = currentYear - 4;
-        year <= currentYear + 1;
-        year++
+        let ano = menorAno;
+        ano <= maiorAno;
+        ano++
     ) {
 
-        const option =
-            document.createElement(
-                "option"
-            );
-
-        option.value =
-            year;
-
-        option.textContent =
-            year;
-
-        yearSelect.appendChild(
-            option
-        );
+        yearSelect.innerHTML +=
+            `
+            <option value="${ano}">
+                ${ano}
+            </option>
+            `;
 
     }
 
 
-    monthSelect.value =
-        new Date().getMonth();
+    /*
+        Só define o mês atual se
+        ainda não houver seleção.
+    */
 
+    if (
+        !monthSelect.dataset.pronto
+    ) {
 
-    yearSelect.value =
-        currentYear;
+        monthSelect.value =
+            hoje.getMonth();
+
+        yearSelect.value =
+            anoAtual;
+
+        monthSelect.dataset.pronto =
+            "true";
+
+    }
 
 }
 
@@ -2270,53 +3726,49 @@ function populateReportSelectors() {
    DADOS DO MÊS
 ========================================================= */
 
-function getMonthlyData(
-    month,
-    year
+function obterDadosMensais(
+    mes,
+    ano
 ) {
 
-    const monthlySales =
-        sales.filter(
-            sale => {
+    const vendasMes =
+        vendas.filter(
+            venda => {
 
-                const date =
+                const data =
                     new Date(
-                        sale.data +
-                        "T00:00:00"
+                        `${venda.data}T12:00:00`
                     );
 
+
                 return (
-                    date.getMonth() ===
-                    Number(month)
+                    data.getMonth() ===
+                        Number(mes) &&
 
-                    &&
-
-                    date.getFullYear() ===
-                    Number(year)
+                    data.getFullYear() ===
+                        Number(ano)
                 );
 
             }
         );
 
 
-    const monthlyExpenses =
-        expenses.filter(
-            expense => {
+    const despesasMes =
+        despesas.filter(
+            despesa => {
 
-                const date =
+                const data =
                     new Date(
-                        expense.data +
-                        "T00:00:00"
+                        `${despesa.data}T12:00:00`
                     );
 
+
                 return (
-                    date.getMonth() ===
-                    Number(month)
+                    data.getMonth() ===
+                        Number(mes) &&
 
-                    &&
-
-                    date.getFullYear() ===
-                    Number(year)
+                    data.getFullYear() ===
+                        Number(ano)
                 );
 
             }
@@ -2324,177 +3776,328 @@ function getMonthlyData(
 
 
     return {
-        sales:
-            monthlySales,
-
-        expenses:
-            monthlyExpenses
+        vendasMes,
+        despesasMes
     };
 
 }
 
 
 /* =========================================================
-   ATUALIZAR RELATÓRIO
+   BALANÇO MENSAL
 ========================================================= */
 
-function updateReports() {
+function atualizarBalancoMensal() {
 
-    const month =
+    const monthSelect =
+        document.getElementById(
+            "reportMonth"
+        );
+
+
+    const yearSelect =
+        document.getElementById(
+            "reportYear"
+        );
+
+
+    if (
+        !monthSelect ||
+        !yearSelect
+    ) {
+
+        return;
+
+    }
+
+
+    const mes =
         Number(
-            $("#reportMonth")?.value ??
-            new Date().getMonth()
+            monthSelect.value
         );
 
 
-    const year =
+    const ano =
         Number(
-            $("#reportYear")?.value ??
-            new Date().getFullYear()
+            yearSelect.value
         );
 
 
-    const data =
-        getMonthlyData(
-            month,
-            year
+    const {
+        vendasMes,
+        despesasMes
+    } =
+        obterDadosMensais(
+            mes,
+            ano
         );
 
 
-    const revenue =
-        data.sales.reduce(
-            (sum, item) =>
-                sum +
+    const faturamento =
+        vendasMes.reduce(
+            (soma, venda) =>
+                soma +
                 Number(
-                    item.total || 0
+                    venda.total
                 ),
             0
         );
 
 
-    const expenseTotal =
-        data.expenses.reduce(
-            (sum, item) =>
-                sum +
+    const totalDespesas =
+        despesasMes.reduce(
+            (soma, despesa) =>
+                soma +
                 Number(
-                    item.valor || 0
+                    despesa.valor
                 ),
             0
         );
 
 
-    const profit =
-        revenue -
-        expenseTotal;
+    const lucro =
+        faturamento -
+        totalDespesas;
 
 
-    const margin =
-        revenue > 0
-            ? (profit / revenue) * 100
+    const margem =
+        faturamento > 0
+            ? (
+                lucro /
+                faturamento
+            ) * 100
             : 0;
-
-
-    setText(
-        "monthlyRevenue",
-        formatMoney(revenue)
-    );
-
-
-    setText(
-        "monthlyExpenses",
-        formatMoney(expenseTotal)
-    );
-
-
-    setText(
-        "monthlyProfit",
-        formatMoney(profit)
-    );
-
-
-    setText(
-        "monthlyMargin",
-        `${margin.toFixed(1)}%`
-    );
-
-
-    setText(
-        "monthlySalesCount",
-        data.sales.length
-    );
-
-
-    const ticket =
-        data.sales.length
-            ? revenue /
-              data.sales.length
-            : 0;
-
-
-    setText(
-        "monthlyTicket",
-        formatMoney(ticket)
-    );
-
-
-    const items =
-        data.sales.reduce(
-            (sum, sale) =>
-                sum +
-                Number(
-                    sale.quantidade || 0
-                ),
-            0
-        );
-
-
-    setText(
-        "monthlyItems",
-        items
-    );
 
 
     const title =
-        new Date(
-            year,
-            month,
-            1
-        ).toLocaleDateString(
-            "pt-BR",
-            {
-                month: "long",
-                year: "numeric"
-            }
+        document.getElementById(
+            "monthlyReportTitle"
         );
 
 
-    setText(
-        "monthlyReportTitle",
-        capitalize(title)
+    if (title) {
+
+        title.textContent =
+            `${nomesMeses[mes]} de ${ano}`;
+
+    }
+
+
+    const monthlyRevenue =
+        document.getElementById(
+            "monthlyRevenue"
+        );
+
+
+    const monthlyExpenses =
+        document.getElementById(
+            "monthlyExpenses"
+        );
+
+
+    const monthlyProfit =
+        document.getElementById(
+            "monthlyProfit"
+        );
+
+
+    const monthlyMargin =
+        document.getElementById(
+            "monthlyMargin"
+        );
+
+
+    if (monthlyRevenue) {
+
+        monthlyRevenue.textContent =
+            moeda(faturamento);
+
+    }
+
+
+    if (monthlyExpenses) {
+
+        monthlyExpenses.textContent =
+            moeda(totalDespesas);
+
+    }
+
+
+    if (monthlyProfit) {
+
+        monthlyProfit.textContent =
+            moeda(lucro);
+
+    }
+
+
+    if (monthlyMargin) {
+
+        monthlyMargin.textContent =
+            margem.toFixed(1) + "%";
+
+    }
+
+
+    const itensVendidos =
+        vendasMes.reduce(
+            (soma, venda) =>
+                soma +
+                Number(
+                    venda.quantidade
+                ),
+            0
+        );
+
+
+    const ticket =
+        vendasMes.length
+            ? faturamento /
+              vendasMes.length
+            : 0;
+
+
+    const monthlySalesCount =
+        document.getElementById(
+            "monthlySalesCount"
+        );
+
+
+    const monthlyTicket =
+        document.getElementById(
+            "monthlyTicket"
+        );
+
+
+    const monthlyItems =
+        document.getElementById(
+            "monthlyItems"
+        );
+
+
+    if (monthlySalesCount) {
+
+        monthlySalesCount.textContent =
+            vendasMes.length;
+
+    }
+
+
+    if (monthlyTicket) {
+
+        monthlyTicket.textContent =
+            moeda(ticket);
+
+    }
+
+
+    if (monthlyItems) {
+
+        monthlyItems.textContent =
+            itensVendidos;
+
+    }
+
+
+    /*
+        PRODUTO MAIS VENDIDO
+    */
+
+    const produtosMes = {};
+
+
+    vendasMes.forEach(
+        venda => {
+
+            if (
+                !produtosMes[
+                    venda.produto
+                ]
+            ) {
+
+                produtosMes[
+                    venda.produto
+                ] = {
+
+                    quantidade: 0,
+
+                    faturamento: 0
+
+                };
+
+            }
+
+
+            produtosMes[
+                venda.produto
+            ].quantidade +=
+                Number(
+                    venda.quantidade
+                );
+
+
+            produtosMes[
+                venda.produto
+            ].faturamento +=
+                Number(
+                    venda.total
+                );
+
+        }
     );
 
 
-    renderMonthlyChart(
-        data.sales,
-        data.expenses,
-        month,
-        year
+    const produtosOrdenados =
+        Object.entries(
+            produtosMes
+        )
+        .sort(
+            (a, b) =>
+                b[1].quantidade -
+                a[1].quantidade
+        );
+
+
+    const campeao =
+        produtosOrdenados[0];
+
+
+    const monthlyBestProduct =
+        document.getElementById(
+            "monthlyBestProduct"
+        );
+
+
+    if (monthlyBestProduct) {
+
+        monthlyBestProduct.textContent =
+            campeao
+                ? `${campeao[0]} (${campeao[1].quantidade})`
+                : "—";
+
+    }
+
+
+    atualizarGraficoMensal(
+        vendasMes,
+        despesasMes
     );
 
 
-    renderMonthlyPayments(
-        data.sales
+    atualizarPagamentosMensais(
+        vendasMes
     );
 
 
-    renderMonthlyProducts(
-        data.sales
+    atualizarProdutosMensais(
+        produtosOrdenados
     );
 
 
-    renderComparison();
-
-    renderGeneralReports();
+    atualizarComparativoMensal(
+        mes,
+        ano
+    );
 
 }
 
@@ -2503,135 +4106,167 @@ function updateReports() {
    GRÁFICO MENSAL
 ========================================================= */
 
-function renderMonthlyChart(
-    saleData,
-    expenseData,
-    month,
-    year
+function atualizarGraficoMensal(
+    vendasMes,
+    despesasMes
 ) {
 
-    const canvas =
-        $("#monthlyChart");
-
-    if (!canvas) return;
-
-
-    const context =
-        canvas.getContext("2d");
+    const contexto =
+        document.getElementById(
+            "monthlyChart"
+        );
 
 
-    const days =
-        new Date(
-            year,
-            Number(month) + 1,
-            0
-        ).getDate();
-
-
-    const labels = [];
-    const revenues = [];
-    const expensesValues = [];
-
-
-    for (
-        let day = 1;
-        day <= days;
-        day++
+    if (
+        !contexto ||
+        typeof Chart === "undefined"
     ) {
 
-        const date =
-            new Date(
-                year,
-                month,
-                day
-            );
-
-
-        const iso =
-            `${year}-${String(
-                Number(month) + 1
-            ).padStart(2, "0")}-${String(
-                day
-            ).padStart(2, "0")}`;
-
-
-        labels.push(
-            String(day)
-        );
-
-
-        revenues.push(
-            saleData
-                .filter(
-                    sale =>
-                        sale.data === iso
-                )
-                .reduce(
-                    (sum, sale) =>
-                        sum +
-                        Number(
-                            sale.total || 0
-                        ),
-                    0
-                )
-        );
-
-
-        expensesValues.push(
-            expenseData
-                .filter(
-                    expense =>
-                        expense.data === iso
-                )
-                .reduce(
-                    (sum, expense) =>
-                        sum +
-                        Number(
-                            expense.valor || 0
-                        ),
-                    0
-                )
-        );
+        return;
 
     }
 
 
-    if (monthlyChart)
+    const dias = {};
+
+
+    vendasMes.forEach(
+        venda => {
+
+            const dia =
+                String(
+                    venda.data
+                ).slice(-2);
+
+
+            if (!dias[dia]) {
+
+                dias[dia] = {
+                    vendas: 0,
+                    despesas: 0
+                };
+
+            }
+
+
+            dias[dia].vendas +=
+                Number(
+                    venda.total
+                );
+
+        }
+    );
+
+
+    despesasMes.forEach(
+        despesa => {
+
+            const dia =
+                String(
+                    despesa.data
+                ).slice(-2);
+
+
+            if (!dias[dia]) {
+
+                dias[dia] = {
+                    vendas: 0,
+                    despesas: 0
+                };
+
+            }
+
+
+            dias[dia].despesas +=
+                Number(
+                    despesa.valor
+                );
+
+        }
+    );
+
+
+    let labels =
+        Object.keys(dias)
+            .sort(
+                (a, b) =>
+                    Number(a) -
+                    Number(b)
+            );
+
+
+    if (!labels.length) {
+
+        labels = ["01"];
+
+
+        dias["01"] = {
+            vendas: 0,
+            despesas: 0
+        };
+
+    }
+
+
+    if (monthlyChart) {
+
         monthlyChart.destroy();
+
+    }
 
 
     monthlyChart =
         new Chart(
-            context,
+            contexto,
             {
+
                 type: "bar",
 
                 data: {
 
-                    labels,
+                    labels:
+                        labels.map(
+                            dia =>
+                                "Dia " +
+                                dia
+                        ),
 
                     datasets: [
 
                         {
+
                             label:
-                                "Entradas",
+                                "Faturamento",
 
                             data:
-                                revenues,
+                                labels.map(
+                                    dia =>
+                                        dias[
+                                            dia
+                                        ].vendas
+                                ),
 
                             borderWidth:
                                 1
+
                         },
 
                         {
+
                             label:
-                                "Saídas",
+                                "Despesas",
 
                             data:
-                                expensesValues,
+                                labels.map(
+                                    dia =>
+                                        dias[
+                                            dia
+                                        ].despesas
+                                ),
 
                             borderWidth:
                                 1
+
                         }
 
                     ]
@@ -2645,6 +4280,17 @@ function renderMonthlyChart(
                     maintainAspectRatio:
                         false,
 
+                    plugins: {
+
+                        legend: {
+
+                            position:
+                                "bottom"
+
+                        }
+
+                    },
+
                     scales: {
 
                         y: {
@@ -2656,8 +4302,11 @@ function renderMonthlyChart(
 
                                 callback:
                                     value =>
-                                        formatMoney(
+                                        "R$ " +
+                                        Number(
                                             value
+                                        ).toLocaleString(
+                                            "pt-BR"
                                         )
 
                             }
@@ -2675,125 +4324,130 @@ function renderMonthlyChart(
 
 
 /* =========================================================
-   PAGAMENTOS
+   PAGAMENTOS DO MÊS
 ========================================================= */
 
-function renderMonthlyPayments(
-    data
+function atualizarPagamentosMensais(
+    vendasMes
 ) {
 
     const container =
-        $("#monthlyPayments");
-
-
-    if (!container) return;
-
-
-    container.innerHTML = "";
-
-
-    const payments = {};
-
-
-    data.forEach(
-        sale => {
-
-            const payment =
-                sale.pagamento ||
-                "Outro";
-
-
-            payments[payment] =
-                (
-                    payments[payment] ||
-                    0
-                ) +
-                Number(
-                    sale.total || 0
-                );
-
-        }
-    );
-
-
-    const entries =
-        Object.entries(
-            payments
+        document.getElementById(
+            "monthlyPayments"
         );
 
 
-    if (
-        entries.length === 0
-    ) {
-
-        container.innerHTML = `
-
-            <div class="empty-state">
-
-                <i class="fa-solid fa-wallet"></i>
-
-                <p>
-                    Nenhuma venda neste mês.
-                </p>
-
-            </div>
-
-        `;
+    if (!container) {
 
         return;
 
     }
 
 
-    entries
-        .sort(
-            (a, b) =>
-                b[1] - a[1]
-        )
-        .forEach(
-            ([payment, value]) => {
-
-                const row =
-                    document.createElement(
-                        "div"
-                    );
+    const pagamentos = {};
 
 
-                row.className =
-                    "payment-row";
+    vendasMes.forEach(
+        venda => {
+
+            const forma =
+                venda.pagamento ||
+                "Outro";
 
 
-                row.innerHTML = `
+            if (
+                !pagamentos[forma]
+            ) {
 
-                    <div class="payment-left">
+                pagamentos[forma] = {
 
-                        <i class="fa-solid fa-credit-card"></i>
+                    quantidade: 0,
 
-                        <span>
-                            ${escapeHTML(
-                                payment
-                            )}
-                        </span>
+                    valor: 0
 
-                    </div>
-
-                    <div class="payment-right">
-
-                        ${formatMoney(
-                            value
-                        )}
-
-                    </div>
-
-                `;
-
-
-                container.appendChild(
-                    row
-                );
+                };
 
             }
+
+
+            pagamentos[forma].quantidade++;
+
+
+            pagamentos[forma].valor +=
+                Number(
+                    venda.total
+                );
+
+        }
+    );
+
+
+    const lista =
+        Object.entries(
+            pagamentos
+        )
+        .sort(
+            (a, b) =>
+                b[1].valor -
+                a[1].valor
         );
+
+
+    container.innerHTML =
+        "";
+
+
+    if (!lista.length) {
+
+        container.innerHTML =
+            `
+            <div class="empty-state">
+                Nenhuma venda neste mês.
+            </div>
+            `;
+
+        return;
+
+    }
+
+
+    lista.forEach(item => {
+
+        container.innerHTML += `
+
+            <div class="payment-row">
+
+                <div class="payment-left">
+
+                    <i
+                        class="fa-solid fa-credit-card"
+                    ></i>
+
+                    <span>
+                        ${escapar(
+                            item[0]
+                        )}
+                    </span>
+
+                </div>
+
+
+                <div class="payment-right">
+
+                    ${item[1].quantidade}
+                    venda(s)
+                    —
+                    ${moeda(
+                        item[1].valor
+                    )}
+
+                </div>
+
+            </div>
+
+        `;
+
+    });
 
 }
 
@@ -2802,170 +4456,104 @@ function renderMonthlyPayments(
    PRODUTOS DO MÊS
 ========================================================= */
 
-function renderMonthlyProducts(
-    data
+function atualizarProdutosMensais(
+    produtosOrdenados
 ) {
 
     const container =
-        $("#monthlyBestProducts");
-
-    const bestProduct =
-        $("#monthlyBestProduct");
-
-
-    if (!container)
-        return;
-
-
-    container.innerHTML = "";
-
-
-    const ranking = {};
-
-
-    data.forEach(
-        sale => {
-
-            const name =
-                sale.produto ||
-                "Produto";
-
-
-            ranking[name] =
-                (
-                    ranking[name] ||
-                    0
-                ) +
-                Number(
-                    sale.quantidade || 0
-                );
-
-        }
-    );
-
-
-    const sorted =
-        Object.entries(
-            ranking
-        )
-        .sort(
-            (a, b) =>
-                b[1] - a[1]
+        document.getElementById(
+            "monthlyBestProducts"
         );
 
 
-    if (
-        bestProduct
-    ) {
+    if (!container) {
 
-        bestProduct.textContent =
-            sorted.length
-                ? sorted[0][0]
-                : "—";
+        return;
 
     }
 
 
-    sorted
+    container.innerHTML =
+        "";
+
+
+    if (
+        !produtosOrdenados.length
+    ) {
+
+        container.innerHTML =
+            `
+            <div class="empty-state">
+                Nenhuma venda neste mês.
+            </div>
+            `;
+
+        return;
+
+    }
+
+
+    produtosOrdenados
         .slice(0, 5)
         .forEach(
-            ([name, quantity], index) => {
+            (item, index) => {
 
-                const item =
-                    document.createElement(
-                        "div"
-                    );
+                container.innerHTML += `
 
+                    <div class="rank-item">
 
-                item.className =
-                    "rank-item";
+                        <div class="rank-left">
 
+                            <div
+                                class="rank-number"
+                            >
+                                ${index + 1}
+                            </div>
 
-                item.innerHTML = `
+                            <span
+                                class="rank-name"
+                            >
+                                ${escapar(
+                                    item[0]
+                                )}
+                            </span>
 
-                    <div class="rank-left">
-
-                        <div class="rank-number">
-                            ${index + 1}
                         </div>
 
-                        <div class="rank-name">
-                            ${escapeHTML(name)}
-                        </div>
 
-                    </div>
+                        <span
+                            class="rank-value"
+                        >
 
-                    <div class="rank-value">
+                            ${item[1].quantidade}
+                            un.
+                            —
+                            ${moeda(
+                                item[1].faturamento
+                            )}
 
-                        ${quantity}
-                        ${quantity === 1
-                            ? "unidade"
-                            : "unidades"}
+                        </span>
 
                     </div>
 
                 `;
 
-
-                container.appendChild(
-                    item
-                );
-
             }
         );
-
-
-    if (
-        sorted.length === 0
-    ) {
-
-        container.innerHTML = `
-
-            <div class="empty-state">
-
-                <i class="fa-solid fa-box-open"></i>
-
-                <p>
-                    Nenhuma venda neste mês.
-                </p>
-
-            </div>
-
-        `;
-
-    }
 
 }
 
 
 /* =========================================================
-   COMPARATIVO DOS ÚLTIMOS 12 MESES
+   ÚLTIMOS 12 MESES
 ========================================================= */
 
-function renderComparison() {
+function obterUltimos12Meses(
+    mesAtual,
+    anoAtual
+) {
 
-    const canvas =
-        $("#comparisonChart");
-
-    const tbody =
-        $("#monthlyComparisonTable");
-
-
-    if (!canvas || !tbody)
-        return;
-
-
-    const labels = [];
-    const revenues = [];
-    const expenseValues = [];
-    const profits = [];
-
-
-    tbody.innerHTML = "";
-
-
-    const now =
-        new Date();
+    const resultado = [];
 
 
     for (
@@ -2974,146 +4562,212 @@ function renderComparison() {
         i--
     ) {
 
-        const date =
+        const data =
             new Date(
-                now.getFullYear(),
-                now.getMonth() - i,
+                anoAtual,
+                mesAtual - i,
                 1
             );
 
 
-        const month =
-            date.getMonth();
+        resultado.push({
 
-        const year =
-            date.getFullYear();
+            mes:
+                data.getMonth(),
 
+            ano:
+                data.getFullYear()
 
-        const data =
-            getMonthlyData(
-                month,
-                year
-            );
-
-
-        const revenue =
-            data.sales.reduce(
-                (sum, sale) =>
-                    sum +
-                    Number(
-                        sale.total || 0
-                    ),
-                0
-            );
-
-
-        const expense =
-            data.expenses.reduce(
-                (sum, item) =>
-                    sum +
-                    Number(
-                        item.valor || 0
-                    ),
-                0
-            );
-
-
-        const profit =
-            revenue -
-            expense;
-
-
-        const margin =
-            revenue > 0
-                ? (profit / revenue) * 100
-                : 0;
-
-
-        labels.push(
-            date.toLocaleDateString(
-                "pt-BR",
-                {
-                    month: "short"
-                }
-            )
-        );
-
-
-        revenues.push(
-            revenue
-        );
-
-        expenseValues.push(
-            expense
-        );
-
-        profits.push(
-            profit
-        );
-
-
-        const tr =
-            document.createElement(
-                "tr"
-            );
-
-
-        tr.innerHTML = `
-
-            <td>
-                ${capitalize(
-                    date.toLocaleDateString(
-                        "pt-BR",
-                        {
-                            month:
-                                "long",
-                            year:
-                                "numeric"
-                        }
-                    )
-                )}
-            </td>
-
-            <td>
-                ${formatMoney(
-                    revenue
-                )}
-            </td>
-
-            <td>
-                ${formatMoney(
-                    expense
-                )}
-            </td>
-
-            <td>
-                ${formatMoney(
-                    profit
-                )}
-            </td>
-
-            <td>
-                ${margin.toFixed(1)}%
-            </td>
-
-        `;
-
-
-        tbody.appendChild(
-            tr
-        );
+        });
 
     }
 
 
-    if (comparisonChart)
+    return resultado;
+
+}
+
+
+/* =========================================================
+   COMPARATIVO MENSAL
+========================================================= */
+
+function atualizarComparativoMensal(
+    mesAtual,
+    anoAtual
+) {
+
+    const periodos =
+        obterUltimos12Meses(
+            mesAtual,
+            anoAtual
+        );
+
+
+    const dados =
+        periodos.map(
+            periodo => {
+
+                const vendasPeriodo =
+                    vendas.filter(
+                        venda => {
+
+                            const data =
+                                new Date(
+                                    `${venda.data}T12:00:00`
+                                );
+
+
+                            return (
+                                data.getMonth() ===
+                                    periodo.mes &&
+
+                                data.getFullYear() ===
+                                    periodo.ano
+                            );
+
+                        }
+                    );
+
+
+                const despesasPeriodo =
+                    despesas.filter(
+                        despesa => {
+
+                            const data =
+                                new Date(
+                                    `${despesa.data}T12:00:00`
+                                );
+
+
+                            return (
+                                data.getMonth() ===
+                                    periodo.mes &&
+
+                                data.getFullYear() ===
+                                    periodo.ano
+                            );
+
+                        }
+                    );
+
+
+                const faturamento =
+                    vendasPeriodo.reduce(
+                        (soma, venda) =>
+                            soma +
+                            Number(
+                                venda.total
+                            ),
+                        0
+                    );
+
+
+                const saidas =
+                    despesasPeriodo.reduce(
+                        (soma, despesa) =>
+                            soma +
+                            Number(
+                                despesa.valor
+                            ),
+                        0
+                    );
+
+
+                const lucro =
+                    faturamento -
+                    saidas;
+
+
+                const margem =
+                    faturamento > 0
+                        ? (
+                            lucro /
+                            faturamento
+                        ) * 100
+                        : 0;
+
+
+                return {
+
+                    mes:
+                        periodo.mes,
+
+                    ano:
+                        periodo.ano,
+
+                    faturamento,
+
+                    despesas:
+                        saidas,
+
+                    lucro,
+
+                    margem
+
+                };
+
+            }
+        );
+
+
+    const labels =
+        dados.map(
+            item =>
+                `${nomesMesesCurto[item.mes]}/${String(item.ano).slice(-2)}`
+        );
+
+
+    atualizarGraficoComparativo(
+        labels,
+        dados
+    );
+
+
+    atualizarTabelaComparativo(
+        dados
+    );
+
+}
+
+
+/* =========================================================
+   GRÁFICO COMPARATIVO
+========================================================= */
+
+function atualizarGraficoComparativo(
+    labels,
+    dados
+) {
+
+    const contexto =
+        document.getElementById(
+            "comparisonChart"
+        );
+
+
+    if (
+        !contexto ||
+        typeof Chart === "undefined"
+    ) {
+
+        return;
+
+    }
+
+
+    if (comparisonChart) {
+
         comparisonChart.destroy();
+
+    }
 
 
     comparisonChart =
         new Chart(
-            canvas.getContext("2d"),
+            contexto,
             {
+
                 type: "line",
 
                 data: {
@@ -3123,45 +4777,69 @@ function renderComparison() {
                     datasets: [
 
                         {
+
                             label:
                                 "Faturamento",
 
                             data:
-                                revenues,
+                                dados.map(
+                                    item =>
+                                        item.faturamento
+                                ),
 
                             borderWidth:
-                                2,
+                                3,
 
                             tension:
-                                .35
+                                .35,
+
+                            pointRadius:
+                                3
+
                         },
 
                         {
+
                             label:
                                 "Despesas",
 
                             data:
-                                expenseValues,
+                                dados.map(
+                                    item =>
+                                        item.despesas
+                                ),
 
                             borderWidth:
-                                2,
+                                3,
 
                             tension:
-                                .35
+                                .35,
+
+                            pointRadius:
+                                3
+
                         },
 
                         {
+
                             label:
                                 "Lucro",
 
                             data:
-                                profits,
+                                dados.map(
+                                    item =>
+                                        item.lucro
+                                ),
 
                             borderWidth:
-                                2,
+                                3,
 
                             tension:
-                                .35
+                                .35,
+
+                            pointRadius:
+                                3
+
                         }
 
                     ]
@@ -3175,6 +4853,17 @@ function renderComparison() {
                     maintainAspectRatio:
                         false,
 
+                    plugins: {
+
+                        legend: {
+
+                            position:
+                                "bottom"
+
+                        }
+
+                    },
+
                     scales: {
 
                         y: {
@@ -3186,8 +4875,11 @@ function renderComparison() {
 
                                 callback:
                                     value =>
-                                        formatMoney(
+                                        "R$ " +
+                                        Number(
                                             value
+                                        ).toLocaleString(
+                                            "pt-BR"
                                         )
 
                             }
@@ -3205,205 +4897,72 @@ function renderComparison() {
 
 
 /* =========================================================
-   RELATÓRIOS GERAIS
+   TABELA COMPARATIVA
 ========================================================= */
 
-function renderGeneralReports() {
+function atualizarTabelaComparativo(
+    dados
+) {
 
-    const revenue =
-        sales.reduce(
-            (sum, sale) =>
-                sum +
-                Number(
-                    sale.total || 0
-                ),
-            0
+    const tabela =
+        document.getElementById(
+            "monthlyComparisonTable"
         );
 
 
-    const expenseTotal =
-        expenses.reduce(
-            (sum, expense) =>
-                sum +
-                Number(
-                    expense.valor || 0
-                ),
-            0
-        );
-
-
-    const profit =
-        revenue -
-        expenseTotal;
-
-
-    const margin =
-        revenue > 0
-            ? (profit / revenue) * 100
-            : 0;
-
-
-    setText(
-        "reportRevenue",
-        formatMoney(revenue)
-    );
-
-
-    setText(
-        "reportExpenses",
-        formatMoney(expenseTotal)
-    );
-
-
-    setText(
-        "reportProfit",
-        formatMoney(profit)
-    );
-
-
-    setText(
-        "reportMargin",
-        `${margin.toFixed(1)}%`
-    );
-
-
-    setText(
-        "summaryRevenue",
-        formatMoney(revenue)
-    );
-
-
-    setText(
-        "summaryExpenses",
-        formatMoney(expenseTotal)
-    );
-
-
-    setText(
-        "summaryProfit",
-        formatMoney(profit)
-    );
-
-
-    renderBestProducts();
-
-    renderExpenseCategories();
-
-}
-
-
-/* =========================================================
-   PRODUTOS MAIS VENDIDOS — GERAL
-========================================================= */
-
-function renderBestProducts() {
-
-    const container =
-        $("#bestProducts");
-
-
-    if (!container)
-        return;
-
-
-    container.innerHTML = "";
-
-
-    const ranking = {};
-
-
-    sales.forEach(
-        sale => {
-
-            const name =
-                sale.produto ||
-                "Produto";
-
-
-            ranking[name] =
-                (
-                    ranking[name] ||
-                    0
-                ) +
-                Number(
-                    sale.quantidade || 0
-                );
-
-        }
-    );
-
-
-    const sorted =
-        Object.entries(
-            ranking
-        )
-        .sort(
-            (a, b) =>
-                b[1] - a[1]
-        )
-        .slice(0, 5);
-
-
-    if (
-        sorted.length === 0
-    ) {
-
-        container.innerHTML = `
-
-            <div class="empty-state">
-
-                <i class="fa-solid fa-box-open"></i>
-
-                <p>
-                    Ainda não existem vendas.
-                </p>
-
-            </div>
-
-        `;
+    if (!tabela) {
 
         return;
 
     }
 
 
-    sorted.forEach(
-        ([name, quantity], index) => {
-
-            const item =
-                document.createElement(
-                    "div"
-                );
+    tabela.innerHTML =
+        "";
 
 
-            item.className =
-                "rank-item";
+    dados.forEach(
+        item => {
 
+            tabela.innerHTML += `
 
-            item.innerHTML = `
+                <tr>
 
-                <div class="rank-left">
+                    <td>
+                        <strong>
+                            ${nomesMeses[item.mes]}
+                            /
+                            ${item.ano}
+                        </strong>
+                    </td>
 
-                    <div class="rank-number">
-                        ${index + 1}
-                    </div>
+                    <td>
+                        ${moeda(
+                            item.faturamento
+                        )}
+                    </td>
 
-                    <div class="rank-name">
-                        ${escapeHTML(name)}
-                    </div>
+                    <td>
+                        ${moeda(
+                            item.despesas
+                        )}
+                    </td>
 
-                </div>
+                    <td>
+                        <strong>
+                            ${moeda(
+                                item.lucro
+                            )}
+                        </strong>
+                    </td>
 
-                <div class="rank-value">
-                    ${quantity} un.
-                </div>
+                    <td>
+                        ${item.margem.toFixed(1)}%
+                    </td>
+
+                </tr>
 
             `;
-
-
-            container.appendChild(
-                item
-            );
 
         }
     );
@@ -3412,467 +4971,134 @@ function renderBestProducts() {
 
 
 /* =========================================================
-   DESPESAS POR CATEGORIA
+   EVENTOS DOS FILTROS
 ========================================================= */
 
-function renderExpenseCategories() {
-
-    const container =
-        $("#expenseCategories");
-
-
-    if (!container)
-        return;
-
-
-    container.innerHTML = "";
-
-
-    const categories = {};
-
-
-    expenses.forEach(
-        expense => {
-
-            const category =
-                expense.categoria ||
-                "Outros";
-
-
-            categories[category] =
-                (
-                    categories[category] ||
-                    0
-                ) +
-                Number(
-                    expense.valor || 0
-                );
-
-        }
+const reportMonth =
+    document.getElementById(
+        "reportMonth"
     );
 
 
-    const sorted =
-        Object.entries(
-            categories
-        )
-        .sort(
-            (a, b) =>
-                b[1] - a[1]
-        )
-        .slice(0, 5);
+const reportYear =
+    document.getElementById(
+        "reportYear"
+    );
 
 
-    if (
-        sorted.length === 0
-    ) {
+if (reportMonth) {
 
-        container.innerHTML = `
+    reportMonth.addEventListener(
+        "change",
+        atualizarBalancoMensal
+    );
 
-            <div class="empty-state">
-
-                <i class="fa-solid fa-money-bill-wave"></i>
-
-                <p>
-                    Nenhuma despesa registrada.
-                </p>
-
-            </div>
-
-        `;
-
-        return;
-
-    }
+}
 
 
-    sorted.forEach(
-        ([category, value], index) => {
+if (reportYear) {
 
-            const item =
-                document.createElement(
-                    "div"
-                );
+    reportYear.addEventListener(
+        "change",
+        atualizarBalancoMensal
+    );
 
-
-            item.className =
-                "rank-item";
+}
 
 
-            item.innerHTML = `
-
-                <div class="rank-left">
-
-                    <div class="rank-number">
-                        ${index + 1}
-                    </div>
-
-                    <div class="rank-name">
-                        ${escapeHTML(category)}
-                    </div>
-
-                </div>
-
-                <div class="rank-value">
-                    ${formatMoney(value)}
-                </div>
-
-            `;
+const salesSearch =
+    document.getElementById(
+        "salesSearch"
+    );
 
 
-            container.appendChild(
-                item
-            );
+if (salesSearch) {
 
-        }
+    salesSearch.addEventListener(
+        "input",
+        atualizarTabelaVendas
+    );
+
+}
+
+
+const expenseSearch =
+    document.getElementById(
+        "expenseSearch"
+    );
+
+
+if (expenseSearch) {
+
+    expenseSearch.addEventListener(
+        "input",
+        atualizarTabelaDespesas
+    );
+
+}
+
+
+const dashboardPeriod =
+    document.getElementById(
+        "dashboardPeriod"
+    );
+
+
+if (dashboardPeriod) {
+
+    dashboardPeriod.addEventListener(
+        "change",
+        atualizarDashboard
     );
 
 }
 
 
 /* =========================================================
-   EVENTOS
+   TEMA ESCURO
 ========================================================= */
 
-function setupEvents() {
+const themeButton =
+    document.getElementById(
+        "themeButton"
+    );
 
 
-    /* MENU */
+if (themeButton) {
 
-    $$(".menu-item")
-        .forEach(
-            button => {
-
-                button.addEventListener(
-                    "click",
-                    () =>
-                        navigateTo(
-                            button.dataset.page
-                        )
-                );
-
-            }
-        );
-
-
-    /* LINKS INTERNOS */
-
-    $$("[data-go]")
-        .forEach(
-            button => {
-
-                button.addEventListener(
-                    "click",
-                    () =>
-                        navigateTo(
-                            button.dataset.go
-                        )
-                );
-
-            }
-        );
-
-
-    /* MENU MOBILE */
-
-    $("#mobileMenu")
-        ?.addEventListener(
-            "click",
-            () => {
-
-                $(".sidebar")
-                    ?.classList.toggle(
-                        "open"
-                    );
-
-            }
-        );
-
-
-    /* TEMA */
-
-    $("#themeButton")
-        ?.addEventListener(
-            "click",
-            toggleTheme
-        );
-
-
-    /* NOVA VENDA */
-
-    $("#quickSale")
-        ?.addEventListener(
-            "click",
-            () =>
-                openModal(
-                    "saleModal"
-                )
-        );
-
-
-    $("#newSale")
-        ?.addEventListener(
-            "click",
-            () =>
-                openModal(
-                    "saleModal"
-                )
-        );
-
-
-    /* NOVA DESPESA */
-
-    $("#newExpense")
-        ?.addEventListener(
-            "click",
-            () =>
-                openModal(
-                    "expenseModal"
-                )
-        );
-
-
-    /* NOVO PRODUTO */
-
-    $("#newProduct")
-        ?.addEventListener(
-            "click",
-            () =>
-                openModal(
-                    "productModal"
-                )
-        );
-
-
-    $("#emptyNewProduct")
-        ?.addEventListener(
-            "click",
-            () =>
-                openModal(
-                    "productModal"
-                )
-        );
-
-
-    /* FECHAR MODAIS */
-
-    $$("[data-close]")
-        .forEach(
-            button => {
-
-                button.addEventListener(
-                    "click",
-                    () =>
-                        closeModal(
-                            button.dataset.close
-                        )
-                );
-
-            }
-        );
-
-
-    /* CLICAR FORA DO MODAL */
-
-    $$(".modal-overlay")
-        .forEach(
-            overlay => {
-
-                overlay.addEventListener(
-                    "click",
-                    event => {
-
-                        if (
-                            event.target ===
-                            overlay
-                        ) {
-
-                            overlay.classList
-                                .remove(
-                                    "active"
-                                );
-
-                        }
-
-                    }
-                );
-
-            }
-        );
-
-
-    /* FORM VENDA */
-
-    $("#saleForm")
-        ?.addEventListener(
-            "submit",
-            registerSale
-        );
-
-
-    /* FORM DESPESA */
-
-    $("#expenseForm")
-        ?.addEventListener(
-            "submit",
-            registerExpense
-        );
-
-
-    /* FORM PRODUTO */
-
-    $("#productForm")
-        ?.addEventListener(
-            "submit",
-            registerProduct
-        );
-
-
-    /* PREVIEW VENDA */
-
-    $("#saleQuantity")
-        ?.addEventListener(
-            "input",
-            updateSalePreview
-        );
-
-
-    $("#saleUnitPrice")
-        ?.addEventListener(
-            "input",
-            updateSalePreview
-        );
-
-
-    /* FILTRO DASHBOARD */
-
-    $("#dashboardPeriod")
-        ?.addEventListener(
-            "change",
-            updateDashboard
-        );
-
-
-    /* BUSCA VENDAS */
-
-    $("#salesSearch")
-        ?.addEventListener(
-            "input",
-            event =>
-                renderSales(
-                    event.target.value
-                )
-        );
-
-
-    /* BUSCA DESPESAS */
-
-    $("#expenseSearch")
-        ?.addEventListener(
-            "input",
-            event =>
-                renderExpenses(
-                    event.target.value
-                )
-        );
-
-
-    /* MÊS DO RELATÓRIO */
-
-    $("#reportMonth")
-        ?.addEventListener(
-            "change",
-            updateReports
-        );
-
-
-    $("#reportYear")
-        ?.addEventListener(
-            "change",
-            updateReports
-        );
-
-
-    /* DELEÇÕES */
-
-    document.addEventListener(
+    themeButton.addEventListener(
         "click",
-        event => {
+        () => {
 
-            const saleButton =
-                event.target.closest(
-                    "[data-delete-sale]"
+            document.body.classList.toggle(
+                "dark"
+            );
+
+
+            const dark =
+                document.body.classList.contains(
+                    "dark"
                 );
 
 
-            if (saleButton) {
-
-                deleteSale(
-                    saleButton.dataset
-                        .deleteSale
-                );
-
-                return;
-
-            }
+            localStorage.setItem(
+                "voRitaDark",
+                dark
+            );
 
 
-            const expenseButton =
-                event.target.closest(
-                    "[data-delete-expense]"
+            const icon =
+                themeButton.querySelector(
+                    "i"
                 );
 
 
-            if (expenseButton) {
+            if (icon) {
 
-                deleteExpense(
-                    expenseButton.dataset
-                        .deleteExpense
-                );
-
-                return;
-
-            }
-
-
-            const productButton =
-                event.target.closest(
-                    "[data-delete-product]"
-                );
-
-
-            if (productButton) {
-
-                deleteProduct(
-                    productButton.dataset
-                        .deleteProduct
-                );
-
-            }
-
-        }
-    );
-
-
-    /* ESC FECHA MODAL */
-
-    document.addEventListener(
-        "keydown",
-        event => {
-
-            if (
-                event.key ===
-                "Escape"
-            ) {
-
-                $$(".modal-overlay")
-                    .forEach(
-                        modal =>
-                            modal.classList
-                                .remove(
-                                    "active"
-                                )
-                    );
+                icon.className =
+                    dark
+                        ? "fa-solid fa-sun"
+                        : "fa-solid fa-moon";
 
             }
 
@@ -3882,119 +5108,27 @@ function setupEvents() {
 }
 
 
-/* =========================================================
-   TEMA
-========================================================= */
+if (
+    localStorage.getItem(
+        "voRitaDark"
+    ) === "true"
+) {
 
-function toggleTheme() {
-
-    document.body.classList.toggle(
+    document.body.classList.add(
         "dark"
     );
 
 
-    const isDark =
-        document.body.classList
-            .contains("dark");
-
-
-    localStorage.setItem(
-        "voRitaTheme",
-        isDark
-            ? "dark"
-            : "light"
-    );
-
-
-    updateThemeIcon();
-
-}
-
-
-function loadTheme() {
-
-    const theme =
-        localStorage.getItem(
-            "voRitaTheme"
-        );
-
-
-    if (theme === "dark") {
-
-        document.body.classList.add(
-            "dark"
-        );
-
-    }
-
-
-    updateThemeIcon();
-
-}
-
-
-function updateThemeIcon() {
-
-    const button =
-        $("#themeButton");
-
-
-    if (!button)
-        return;
-
-
     const icon =
-        button.querySelector(
-            "i"
+        document.querySelector(
+            "#themeButton i"
         );
 
 
-    if (!icon)
-        return;
+    if (icon) {
 
-
-    const dark =
-        document.body.classList
-            .contains("dark");
-
-
-    icon.className =
-        dark
-            ? "fa-solid fa-sun"
-            : "fa-solid fa-moon";
-
-}
-
-
-/* =========================================================
-   DATAS PADRÃO
-========================================================= */
-
-function setDefaultDates() {
-
-    const today =
-        todayISO();
-
-
-    const saleDate =
-        $("#saleDate");
-
-    const expenseDate =
-        $("#expenseDate");
-
-
-    if (saleDate) {
-
-        saleDate.value =
-            today;
-
-    }
-
-
-    if (expenseDate) {
-
-        expenseDate.value =
-            today;
+        icon.className =
+            "fa-solid fa-sun";
 
     }
 
@@ -4002,107 +5136,22 @@ function setDefaultDates() {
 
 
 /* =========================================================
-   REFRESH GERAL
+   ATUALIZAÇÃO GERAL
 ========================================================= */
 
-function refreshAll() {
+function atualizarTudo() {
 
-    updateDashboard();
+    atualizarDashboard();
 
-    renderSales(
-        $("#salesSearch")?.value || ""
-    );
+    atualizarTabelaVendas();
 
-    renderExpenses(
-        $("#expenseSearch")?.value || ""
-    );
+    atualizarTabelaDespesas();
 
-    renderProducts();
+    atualizarEstoque();
 
-    if (
-        currentPage ===
-        "relatorios"
-    ) {
+    atualizarRelatoriosGerais();
 
-        updateReports();
-
-    } else {
-
-        renderGeneralReports();
-
-    }
-
-}
-
-
-/* =========================================================
-   ID
-========================================================= */
-
-function createId() {
-
-    return (
-        Date.now().toString(36) +
-        "-" +
-        Math.random()
-            .toString(36)
-            .substring(2, 9)
-    );
-
-}
-
-
-/* =========================================================
-   CAPITALIZE
-========================================================= */
-
-function capitalize(
-    text
-) {
-
-    if (!text)
-        return "";
-
-    return (
-        text.charAt(0)
-            .toUpperCase() +
-        text.slice(1)
-    );
-
-}
-
-
-/* =========================================================
-   SEGURANÇA HTML
-========================================================= */
-
-function escapeHTML(
-    value
-) {
-
-    return String(
-        value ?? ""
-    )
-    .replace(
-        /&/g,
-        "&amp;"
-    )
-    .replace(
-        /</g,
-        "&lt;"
-    )
-    .replace(
-        />/g,
-        "&gt;"
-    )
-    .replace(
-        /"/g,
-        "&quot;"
-    )
-    .replace(
-        /'/g,
-        "&#039;"
-    );
+    atualizarBalancoMensal();
 
 }
 
@@ -4111,36 +5160,40 @@ function escapeHTML(
    INICIALIZAÇÃO
 ========================================================= */
 
-async function init() {
+prepararSeletoresMensais();
 
-    updateToday();
+atualizarTotalVenda();
 
-    loadTheme();
-
-    populateReportSelectors();
-
-    setDefaultDates();
-
-    setupEvents();
-
-    refreshAll();
-
-
-    /*
-       Primeiro mostramos os dados locais.
-       Depois tentamos sincronizar com a planilha.
-    */
-
-    await loadFromGoogleSheets();
-
-}
+atualizarTudo();
 
 
 /* =========================================================
-   START
+   SINCRONIZAÇÃO INICIAL
 ========================================================= */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    init
-);
+(async function iniciarSincronizacao() {
+
+    if (!urlConfigurada()) {
+
+        mostrarToast(
+            "Configure a URL do Google Apps Script."
+        );
+
+        return;
+
+    }
+
+
+    const sucesso =
+        await carregarDaPlanilha();
+
+
+    if (sucesso) {
+
+        mostrarToast(
+            "Dados sincronizados com a planilha."
+        );
+
+    }
+
+})();
